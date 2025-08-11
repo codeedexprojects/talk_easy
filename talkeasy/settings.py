@@ -115,3 +115,19 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'talk_easy',
+        'USER': 'root',
+        'PASSWORD':'@1234567890',
+        'HOST':'127.0.0.1',
+        'PORT':'3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',  
+            'use_unicode': True,
+        },
+    }
+}
