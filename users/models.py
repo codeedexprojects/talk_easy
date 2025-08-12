@@ -2,6 +2,35 @@ from django.db import models
 from django.utils import timezone
 from datetime import timedelta
 from django.db import transaction
+import string, random
+
+class UserProfileOutstandingToken(models.Model):
+    # If you have an Admin model, use it; otherwise keep UserProfile
+    user = models.ForeignKey('UserProfile', on_delete=models.CASCADE, related_name='outstanding_tokens')
+    jti = models.CharField(max_length=255, unique=True)  # JWT ID
+    token = models.TextField()  # the actual token string
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'userprofile_outstanding_token'  # Explicitly set table name
+
+    def __str__(self):
+        return f'Token for {self.user} - {self.jti}'
+
+class UserProfileBlacklistedToken(models.Model):
+    token = models.OneToOneField(
+        'UserProfileOutstandingToken', 
+        on_delete=models.CASCADE, 
+        related_name='blacklisted_token'
+    )
+    blacklisted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'userprofile_blacklisted_token'  # Explicitly set table name
+
+    def __str__(self):
+        return f'Blacklisted token {self.token.jti} for {self.token.user}'
 
 
 class UserProfile(models.Model):
@@ -30,8 +59,38 @@ class UserProfile(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    PREFIX = "TUR"  
+
+    class Meta:
+        db_table = 'userprofile'  # Explicitly set table name
+
     def __str__(self):
         return self.name or self.mobile_number or "Unknown User"
+    
+    def generate_unique_user_id(self):
+        prefix = self.PREFIX  
+        
+        with transaction.atomic():
+            last_user = UserProfile.objects.filter(
+                user_id__startswith=prefix
+            ).order_by('-user_id').first()
+            
+            if last_user and last_user.user_id:
+                last_number = int(last_user.user_id[len(prefix):])
+                new_number = last_number + 1
+            else:
+                new_number = 1001  
+            
+            return f"{prefix}{new_number}"
+            
+    def save(self, *args, **kwargs):
+        if not self.user_id:
+            self.user_id = self.generate_unique_user_id()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_authenticated(self):
+        return True
     
 class UserStats(models.Model):
     user = models.OneToOneField(
@@ -53,3 +112,46 @@ class UserStats(models.Model):
 
     def __str__(self):
         return f"Stats for {self.user}"
+    
+
+class ReferralCode(models.Model):
+    user = models.OneToOneField(
+        'UserProfile',  # Changed from 'userprofile' to 'UserProfile' for consistency
+        on_delete=models.CASCADE,
+        related_name='referral_code'
+    )
+    code = models.CharField(max_length=20, unique=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"ReferralCode({self.code}) for {self.user}"
+    
+class ReferralHistory(models.Model):
+    referrer = models.ForeignKey(
+        'UserProfile',  # Changed from 'userprofile' to 'UserProfile' for consistency
+        on_delete=models.CASCADE,
+        related_name='referrals_made'
+    )
+    referred_user = models.OneToOneField(
+        'UserProfile',  # Changed from 'userprofile' to 'UserProfile' for consistency
+        on_delete=models.CASCADE,
+        related_name='referral_info'
+    )
+    referred_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.referrer} referred {self.referred_user}"
+    
+class DeletedUser(models.Model):
+    mobile_number = models.CharField(max_length=15, unique=True)
+    deleted_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"DeletedUser {self.mobile_number}"
+
+class BlacklistedToken(models.Model):
+    token = models.CharField(max_length=500, unique=True)
+    blacklisted_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"Blacklisted token {self.token[:10]}..."

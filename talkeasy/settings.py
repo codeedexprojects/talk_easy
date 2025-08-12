@@ -168,9 +168,11 @@ AUTH_USER_MODEL = 'accounts.Admin'
 #authentication
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
+        'users.authentication.UserProfileJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
 }
+
 
 TWO_FACTOR_API_KEY = '15b274f8-8600-11ef-8b17-0200cd936042'
 
@@ -184,5 +186,6 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'ALGORITHM': 'HS256',
-    
+    'USER_ID_FIELD': 'id',        
+    'USER_ID_CLAIM': 'user_id'
 }

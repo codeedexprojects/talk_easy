@@ -32,7 +32,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
     is_suspended = models.BooleanField(default=False)
     is_banned = models.BooleanField(default=False)
     is_logged_out = models.BooleanField(default=False)
-
+    is_deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     device_id = models.CharField(max_length=255, default=uuid.uuid4)
     last_login = models.DateTimeField(null=True, blank=True)
