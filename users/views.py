@@ -218,3 +218,29 @@ class UserDetailView(APIView):
         serializer = UserProfileSerializer(user)
         return Response(serializer.data, status=status.HTTP_200_OK)
         
+class UserReferralCodeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        try:
+            referral_code = user.referral_code  
+        except ReferralCode.DoesNotExist:
+            return Response({'message': 'Referral code not found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ReferralCodeSerializer(referral_code)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class UserCoinBalanceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        coin_balance = getattr(user, 'coin_balance', None)
+        if coin_balance is None:
+            return Response({"message": "Coin balance not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "user_id": user.id,
+            "coin_balance": coin_balance
+        }, status=status.HTTP_200_OK)

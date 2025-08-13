@@ -3,6 +3,10 @@ from django.utils import timezone
 from datetime import timedelta
 from django.db import transaction
 import string, random
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+import uuid
+
 
 class UserProfileOutstandingToken(models.Model):
     # If you have an Admin model, use it; otherwise keep UserProfile
@@ -116,7 +120,7 @@ class UserStats(models.Model):
 
 class ReferralCode(models.Model):
     user = models.OneToOneField(
-        'UserProfile',  # Changed from 'userprofile' to 'UserProfile' for consistency
+        'UserProfile',  
         on_delete=models.CASCADE,
         related_name='referral_code'
     )
@@ -126,14 +130,20 @@ class ReferralCode(models.Model):
     def __str__(self):
         return f"ReferralCode({self.code}) for {self.user}"
     
+@receiver(post_save, sender=UserProfile)
+def create_referral_code(sender, instance, created, **kwargs):
+    if created:
+        code = f"TE{uuid.uuid4().hex[:6].upper()}"
+        ReferralCode.objects.create(user=instance, code=code)
+    
 class ReferralHistory(models.Model):
     referrer = models.ForeignKey(
-        'UserProfile',  # Changed from 'userprofile' to 'UserProfile' for consistency
+        'UserProfile', 
         on_delete=models.CASCADE,
         related_name='referrals_made'
     )
     referred_user = models.OneToOneField(
-        'UserProfile',  # Changed from 'userprofile' to 'UserProfile' for consistency
+        'UserProfile',  
         on_delete=models.CASCADE,
         related_name='referral_info'
     )

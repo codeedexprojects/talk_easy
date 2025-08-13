@@ -8,6 +8,8 @@ urlpatterns = [
     path('users/logout/', LogoutView.as_view(), name='logout'),
     path('users/<int:user_id>/', UserDetailView.as_view(), name='user-detail'),
     path('users/me/', UserDetailView.as_view(), name='user-self-detail'),
+    path('users/referral-code/', UserReferralCodeView.as_view(), name='user-referral-code'),
+    path('user/coin-balance/', UserCoinBalanceView.as_view(), name='user-coin-balance'),
 
 
 
