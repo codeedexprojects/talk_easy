@@ -142,7 +142,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'talk_easy',
+        'NAME': 'talkeasy$talk_easy',
         'USER': 'talkeasy',
         'PASSWORD':'@1234567890',
         'HOST':'talkeasy.mysql.pythonanywhere-services.com',
