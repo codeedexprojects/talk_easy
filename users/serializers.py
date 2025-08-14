@@ -13,3 +13,18 @@ class ReferralCodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReferralCode
         fields = ['code', 'created_at']
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "name",
+            "email",
+            "mobile_number",
+            "gender",
+        ]
+
+class UserStatusUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = ['is_suspended', 'is_banned']  

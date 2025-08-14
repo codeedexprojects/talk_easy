@@ -178,9 +178,12 @@ class ExecutiveLogoutView(APIView):
 
 from django.shortcuts import get_object_or_404
 from .permissions import IsAdminUser
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 class ExecutiveListAPIView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication] 
+
 
     def get(self, request):
         executives = Executive.objects.all()
@@ -189,9 +192,140 @@ class ExecutiveListAPIView(APIView):
 
 
 class ExecutiveDetailAPIView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication] 
 
     def get(self, request, id):
         executive = get_object_or_404(Executive, id=id)
         serializer = ExecutiveSerializer(executive)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+class ExecutiveUpdateByIDAPIView(APIView):
+    permission_classes = [IsAuthenticated]  # Only authenticated users
+
+    def put(self, request, id):
+        return self.update_executive(request, id)
+
+    def patch(self, request, id):
+        return self.update_executive(request, id, partial=True)
+
+    def update_executive(self, request, id, partial=False):
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveSerializer(executive, data=request.data, partial=partial)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class AdminUpdateExecutiveAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, id):
+        return self.update_executive(request, id)
+
+    def patch(self, request, id):
+        return self.update_executive(request, id, partial=True)
+
+    def update_executive(self, request, id, partial=False):
+        user = request.user
+        if not getattr(user, 'is_staff', False) and not getattr(user, 'is_superuser', False):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveSerializer(executive, data=request.data, partial=partial)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+from users.models import UserProfile
+class BlockUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, executive_id, user_id):
+        try:
+            executive = Executive.objects.get(id=executive_id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        obj, created = BlockedusersByExecutive.objects.update_or_create(
+            user=user,
+            executive=executive,
+            defaults={'is_blocked': True, 'reason': 'Blocked by executive'}
+        )
+        return Response(
+            {"detail": f"User {user_id} blocked by Executive {executive_id} successfully.","status":True},
+            status=status.HTTP_200_OK
+        )
+
+
+class UnblockUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, executive_id, user_id):
+        try:
+            blocked_entry = BlockedusersByExecutive.objects.get(user_id=user_id, executive_id=executive_id)
+            blocked_entry.is_blocked = False
+            blocked_entry.save(update_fields=['is_blocked'])
+            return Response(
+                {"detail": f"User {user_id} unblocked by Executive {executive_id} successfully.","status":True},
+                status=status.HTTP_200_OK
+            )
+        except BlockedusersByExecutive.DoesNotExist:
+            return Response(
+                {"detail": "This user is not blocked by this executive.","status":False},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+class UpdateExecutiveStatusAPIView(APIView):
+    permission_classes = [IsAuthenticated]  
+    authentication_classes = [JWTAuthentication]
+
+
+    def patch(self, request, executive_id):
+        user = request.user
+        if not getattr(user, 'is_staff', False) and not getattr(user, 'is_superuser', False):
+            return Response({"detail": "Not authorized.", "status": False}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            executive = Executive.objects.get(id=executive_id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found.", "status": False}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveStatusUpdateSerializer(executive, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"detail": "Executive status updated successfully.", "status": True}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class UpdateExecutiveOnlineStatusAPIView(APIView):
+    permission_classes = [IsAuthenticated]  
+
+    def patch(self, request, id):
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found.", "status": False}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveOnlineStatusSerializer(executive, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"detail": "Status updated successfully.", "status": True}, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

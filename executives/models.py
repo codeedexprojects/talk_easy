@@ -79,3 +79,16 @@ class ExecutiveToken(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     revoked = models.BooleanField(default=False)
     revoked_at = models.DateTimeField(null=True, blank=True)
+
+class BlockedusersByExecutive(models.Model):
+    user = models.ForeignKey('users.UserProfile', on_delete=models.CASCADE, related_name='blocked_users')
+    executive = models.ForeignKey(Executive, on_delete=models.CASCADE, related_name='blocked_executives')
+    is_blocked = models.BooleanField(default=False)
+    reason = models.TextField()
+    blocked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'executive')
+
+    def __str__(self):
+        return f"{self.user.user_id} blocked {self.executive.executive_id}"

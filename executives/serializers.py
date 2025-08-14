@@ -53,6 +53,22 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'profession', 'skills', 'place', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
-            'account_number', 'ifsc_code', 'stats'
+            'account_number', 'ifsc_code', 'stats','is_offline','is_online'
         ]
         read_only_fields = ['id', 'created_at', 'last_login', 'stats']
+
+
+class BlockUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BlockedusersByExecutive
+        fields = ['user', 'reason','is_blocked','executive']
+
+class ExecutiveStatusUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Executive
+        fields = ['is_suspended', 'is_banned']
+
+class ExecutiveOnlineStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Executive
+        fields = ['is_online', 'is_offline']

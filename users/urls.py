@@ -10,6 +10,9 @@ urlpatterns = [
     path('users/me/', UserDetailView.as_view(), name='user-self-detail'),
     path('users/referral-code/', UserReferralCodeView.as_view(), name='user-referral-code'),
     path('user/coin-balance/', UserCoinBalanceView.as_view(), name='user-coin-balance'),
+    path('executives/', ExecutiveListAPIView.as_view(), name='executive-list'),
+    path('admin/<int:user_id>/update-status/', UpdateUserStatusAPIView.as_view(), name='update-user-status'),#ban / suspend
+    
 
 
 
