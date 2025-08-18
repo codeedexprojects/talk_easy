@@ -43,7 +43,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'executives',
-    'channels'
+    'channels',
+    'calls'
 ]
 
 MIDDLEWARE = [
@@ -222,3 +223,10 @@ SIMPLE_JWT = {
     'USER_ID_FIELD': 'id',        
     'USER_ID_CLAIM': 'user_id'
 }
+
+#agora 
+AGORA_APP_ID = '9019fa33fc6d4654848121f4b88b346c'
+AGORA_APP_CERTIFICATE = 'e2f0a6a085d34973ad08c7cfa785796d'
+AGORA_TOKEN_TTL_SECONDS = 3600  # 1 hour
+COINS_PER_SECOND = 3
+

@@ -324,3 +324,206 @@ class UpdateUserStatusAPIView(APIView):
             return Response({"detail": "User status updated successfully.", "status": True}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+from django.shortcuts import get_object_or_404
+
+class FavouriteExecutiveView(APIView):
+ 
+    permission_classes = [IsAuthenticated]  
+
+    def get(self, request, user_id, *args, **kwargs):
+        user = get_object_or_404(UserProfile, id=user_id)
+        favourites = Favourite.objects.filter(user=user).select_related('executive')
+        executives = [fav.executive for fav in favourites]
+        serializer = ExecutiveFavoSerializer    (executives, many=True)
+        return Response({"user_id": user.id, "favourites": serializer.data}, status=status.HTTP_200_OK)
+
+    def post(self, request, user_id, executive_id, *args, **kwargs):
+        user = get_object_or_404(UserProfile, id=user_id)
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        favourite, created = Favourite.objects.get_or_create(user=user, executive=executive)
+        if not created:
+            favourite.delete()
+            return Response({"message": "Executive removed from favourites."}, status=status.HTTP_200_OK)
+
+        return Response({"message": "Executive added to favourites."}, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, user_id, executive_id, *args, **kwargs):
+        user = get_object_or_404(UserProfile, id=user_id)
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        favourite = Favourite.objects.filter(user=user, executive=executive).first()
+        if not favourite:
+            return Response({"message": "This executive is not in your favourites."}, status=status.HTTP_404_NOT_FOUND)
+
+        favourite.delete()
+        return Response({"message": "Executive removed from favourites successfully."}, status=status.HTTP_200_OK)
+    
+
+class RatingExecutiveView(APIView):
+    permission_classes = []
+
+    def get(self, request, executive_id, *args, **kwargs):
+        executive = get_object_or_404(Executive, id=executive_id)
+        ratings = Rating.objects.filter(executive=executive)
+        serializer = RatingSerializer(ratings, many=True)
+        average_rating = ratings.aggregate(avg_rating=models.Avg('rating'))['avg_rating'] or 0
+        return Response({
+            "executive_id": executive.id,
+            "executive_name": executive.name,
+            "average_rating": round(average_rating, 2),
+            "ratings": serializer.data
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request, executive_id, *args, **kwargs):
+        user_id = request.data.get('user_id')
+        rating_value = request.data.get('rating')
+        comment = request.data.get('comment', '')
+
+        if not user_id or rating_value is None:
+            return Response({"message": "user_id and rating are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user = get_object_or_404(UserProfile, id=user_id)
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        rating, created = Rating.objects.update_or_create(
+            user=user,
+            executive=executive,
+            defaults={"rating": rating_value, "comment": comment}
+        )
+
+        serializer = RatingSerializer(rating)
+        message = "Rating added successfully." if created else "Rating updated successfully."
+        return Response({"message": message, "rating": serializer.data},
+                        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    def delete(self, request, executive_id, *args, **kwargs):
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return Response({"message": "user_id is required to delete a rating."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user = get_object_or_404(UserProfile, id=user_id)
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        rating = Rating.objects.filter(user=user, executive=executive).first()
+        if not rating:
+            return Response({"message": "Rating not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        rating.delete()
+        return Response({"message": "Rating removed successfully."}, status=status.HTTP_200_OK)
+    
+
+class CareerListCreateView(APIView):
+
+    def get(self, request, *args, **kwargs):
+        careers = Career.objects.all().order_by('-created_at')
+        serializer = CareerSerializer(careers, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        serializer = CareerSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CareerDetailView(APIView):
+    def get_object(self, pk):
+        return get_object_or_404(Career, pk=pk)
+
+    def get(self, request, pk, *args, **kwargs):
+        career = self.get_object(pk)
+        serializer = CareerSerializer(career)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk, *args, **kwargs):
+        career = self.get_object(pk)
+        serializer = CareerSerializer(career, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request, pk, *args, **kwargs):
+        career = self.get_object(pk)
+        serializer = CareerSerializer(career, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk, *args, **kwargs):
+        career = self.get_object(pk)
+        career.delete()
+        return Response({"message": "Career entry deleted successfully."}, status=status.HTTP_200_OK)
+    
+class CarouselImageListCreateView(APIView):
+    def get(self, request):
+        images = CarouselImage.objects.all()
+        serializer = CarouselImageSerializer(images, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = CarouselImageSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class CarouselImageDetailView(APIView):
+    def get(self, request, image_id):
+        try:
+            image = CarouselImage.objects.get(id=image_id)
+            serializer = CarouselImageSerializer(image)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except CarouselImage.DoesNotExist:
+            return Response({'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, image_id):
+        try:
+            image = CarouselImage.objects.get(id=image_id)
+            serializer = CarouselImageSerializer(image, data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except CarouselImage.DoesNotExist:
+            return Response({'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, image_id):
+        try:
+            image = CarouselImage.objects.get(id=image_id)
+            image.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except CarouselImage.DoesNotExist:
+            return Response({'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+class ReferralHistoryListView(APIView):
+
+    permission_classes = [] 
+
+    def get(self, request, *args, **kwargs):
+        histories = ReferralHistory.objects.select_related('referrer', 'referred_user').all().order_by('-referred_at')
+        serializer = ReferralHistorySerializer(histories, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+from rest_framework.generics import ListAPIView,RetrieveAPIView
+from accounts.pagination import CustomUserPagination
+
+class UserProfileListView(ListAPIView):
+    queryset = UserProfile.objects.filter(is_deleted=False).order_by('-created_at')
+    serializer_class = UserProfileSerializerAdmin
+    pagination_class = CustomUserPagination
+
+class UserDetailView(RetrieveAPIView):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserProfileSerializerAdmin
+    permission_classes = [] 
+
+    def get_object(self):
+        user_id = self.kwargs.get("user_id")
+        return get_object_or_404(UserProfile, id=user_id)

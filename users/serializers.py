@@ -28,3 +28,89 @@ class UserStatusUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ['is_suspended', 'is_banned']  
+
+from executives.models import Executive
+class ExecutiveFavoSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Executive
+        fields = [
+            'id', 'executive_id', 'name', 'age', 'gender',
+            'profession', 'skills', 'education_qualification', 'status',
+            'online', 'is_verified', 'is_suspended', 'is_banned',
+            'created_at','is_offline','is_online'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+class RatingSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    username = serializers.CharField(source='user.name', read_only=True)
+    executive_id = serializers.IntegerField(source='executive.id', read_only=True)
+    executive_name = serializers.CharField(source='executive.name', read_only=True)
+
+    class Meta:
+        model = Rating
+        fields = ['user_id', 'username', 'executive_id', 'executive_name', 'rating', 'comment', 'created_at']
+
+class CareerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Career
+        fields = '__all__'
+
+class CarouselImageSerializer(serializers.ModelSerializer):
+    # full_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CarouselImage
+        fields = ['id', 'title', 'image', 'created_at']
+
+    # def get_full_image_url(self, obj):
+    #     request = self.context.get('request')
+    #     if obj.image:
+    #         return request.build_absolute_uri(obj.image.url)
+    #     return None
+
+class ReferralHistorySerializer(serializers.ModelSerializer):
+    referrer_id = serializers.IntegerField(source='referrer.id', read_only=True)
+    referrer_name = serializers.CharField(source='referrer.name', read_only=True)
+    referred_user_id = serializers.IntegerField(source='referred_user.id', read_only=True)
+    referred_user_name = serializers.CharField(source='referred_user.name', read_only=True)
+
+    class Meta:
+        model = ReferralHistory
+        fields = ['id', 'referrer_id', 'referrer_name', 'referred_user_id', 'referred_user_name', 'referred_at']
+
+
+class UserStatsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserStats
+        fields = [
+            'coin_balance',
+            'total_calls',
+            'total_call_seconds',
+            'total_call_seconds_today',
+            'last_updated'
+        ]
+
+
+class UserProfileSerializerAdmin(serializers.ModelSerializer):
+    stats = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserProfile
+        fields = [
+            'id', 'user_id', 'name', 'email', 'mobile_number', 'gender',
+            'coin_balance', 'is_verified', 'is_banned', 'is_suspended',
+            'created_at', 'is_active', 'stats'
+        ]
+
+    def get_stats(self, obj):
+        if hasattr(obj, 'stats'):
+            return UserStatsSerializer(obj.stats).data
+        return {
+            "coin_balance": 0,
+            "total_calls": 0,
+            "total_call_seconds": 0,
+            "total_call_seconds_today": 0,
+            "last_updated": None
+        }

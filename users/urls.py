@@ -12,8 +12,16 @@ urlpatterns = [
     path('user/coin-balance/', UserCoinBalanceView.as_view(), name='user-coin-balance'),
     path('executives/', ExecutiveListAPIView.as_view(), name='executive-list'),
     path('admin/<int:user_id>/update-status/', UpdateUserStatusAPIView.as_view(), name='update-user-status'),#ban / suspend
-    
-
+    path('favourites/<int:user_id>/', FavouriteExecutiveView.as_view(), name='list-favourites'),#list fav ex
+    path('favourites/<int:user_id>/<int:executive_id>/', FavouriteExecutiveView.as_view(), name='manage-favourite'),#add/rem fav ex
+    path('ratings/<int:executive_id>/', RatingExecutiveView.as_view(), name='manage-rating'),#rating add del list
+    path('careers/', CareerListCreateView.as_view(), name='career-list-create'),
+    path('careers/<int:pk>/', CareerDetailView.as_view(), name='career-detail'),
+    path('carousel-images/', CarouselImageListCreateView.as_view(), name='carousel_image_list_create'),
+    path('carousel-images/<int:image_id>/', CarouselImageDetailView.as_view(), name='carousel_image_detail'),
+    path('referrals/', ReferralHistoryListView.as_view(), name='referral-history-list'),
+    path('users/', UserProfileListView.as_view(), name='user-list'),
+    path('users/<int:pk>/', UserDetailView.as_view(), name='user-detail'),
 
 
 

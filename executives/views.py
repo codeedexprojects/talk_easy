@@ -179,16 +179,15 @@ class ExecutiveLogoutView(APIView):
 from django.shortcuts import get_object_or_404
 from .permissions import IsAdminUser
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from accounts.pagination import CustomExecutivePagination
+from rest_framework.generics import ListAPIView
 
-class ExecutiveListAPIView(APIView):
+class ExecutiveListAPIView(ListAPIView):
+    queryset = Executive.objects.all()
+    serializer_class = ExecutiveSerializer
     permission_classes = [IsAuthenticated]
-    authentication_classes = [JWTAuthentication] 
-
-
-    def get(self, request):
-        executives = Executive.objects.all()
-        serializer = ExecutiveSerializer(executives, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    authentication_classes = [JWTAuthentication]
+    pagination_class = CustomExecutivePagination
 
 
 class ExecutiveDetailAPIView(APIView):

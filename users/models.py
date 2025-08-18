@@ -96,6 +96,11 @@ class UserProfile(models.Model):
     def is_authenticated(self):
         return True
     
+@receiver(post_save, sender=UserProfile)
+def create_user_stats(sender, instance, created, **kwargs):
+    if created:
+        UserStats.objects.create(user=instance)
+    
 class UserStats(models.Model):
     user = models.OneToOneField(
         'UserProfile',  
@@ -157,3 +162,62 @@ class BlacklistedToken(models.Model):
 
     def __str__(self):
         return f"Blacklisted token {self.token[:10]}..."
+    
+class Favourite(models.Model):
+    user = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
+    executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'executive')
+
+    def __str__(self):
+        return f"{self.user} - {self.executive}"
+    
+
+class Rating(models.Model):
+    user = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
+    executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE)
+    rating = models.PositiveIntegerField()
+    comment = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'executive')
+    def __str__(self):
+        return f"{self.user.username} rated {self.executive.name} - {self.rating}"
+    
+class Career(models.Model):
+    GENDER_CHOICES = [
+        ('Male', 'Male'),
+        ('Female', 'Female'),
+    ]
+
+    MARITAL_STATUS_CHOICES = [
+        ('Married', 'Married'),
+        ('Single', 'Single'),
+    ]
+
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField(unique=True)
+    phone_number = models.CharField(max_length=15)
+    age = models.PositiveIntegerField()
+    place = models.CharField(max_length=255)
+    education = models.CharField(max_length=255)
+    profession = models.CharField(max_length=255)
+    spoken_languages = models.CharField(max_length=255, help_text="List languages separated by commas")
+    gender = models.CharField(max_length=6, choices=GENDER_CHOICES)
+    marital_status = models.CharField(max_length=10, choices=MARITAL_STATUS_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+    def __str__(self):
+        return self.full_name
+    
+class CarouselImage(models.Model):
+    title = models.CharField(max_length=255,null=True)
+    image = models.ImageField(upload_to='carousel_images/')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
