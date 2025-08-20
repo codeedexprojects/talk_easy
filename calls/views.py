@@ -22,6 +22,8 @@ from calls.utils import generate_agora_token
 import threading
 import time
 from executives.models import Executive
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 class CallInitiateView(APIView):
     def post(self, request):
@@ -31,12 +33,35 @@ class CallInitiateView(APIView):
             channel_name = serializer.validated_data['channel_name']
             caller_uid = serializer.validated_data['caller_uid']
 
+            # Get executive
+            try:
+                executive = Executive.objects.get(id=executive_id)
+            except Executive.DoesNotExist:
+                return Response({"detail": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # --- Validations ---
+            if not executive.is_online:
+                return Response({"detail": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
+
+            if executive.is_banned:
+                return Response({"detail": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
+
+            if executive.is_suspended:
+                return Response({"detail": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
+
+            if executive.on_call:
+                return Response({"detail": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Mark executive as on call
+            executive.on_call = True
+            executive.save(update_fields=["on_call"])
+
             # Generate Agora token
             token = generate_agora_token(channel_name, caller_uid)
 
             # Save call history
             call_history = AgoraCallHistory.objects.create(
-                executive_id=executive_id,
+                executive=executive,
                 channel_name=channel_name,
                 uid=caller_uid,
                 token=token,
@@ -46,23 +71,63 @@ class CallInitiateView(APIView):
                 user=request.user
             )
 
+            try:
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    executive_group_name = f"user_executive_{executive_id}"
+                    
+                    async_to_sync(channel_layer.group_send)(
+                        executive_group_name,
+                        {
+                            'type': 'incoming_call',
+                            'call_id': call_history.id,
+                            'channel_name': channel_name,
+                            'caller_name': getattr(request.user, 'first_name', 'Unknown'),
+                            'caller_uid': caller_uid,
+                            'timestamp': call_history.start_time.isoformat()
+                        }
+                    )
+            except Exception as e:
+                print(f"WebSocket notification failed: {e}")
+
             def clear_on_call_if_not_joined(call_id, executive_id):
-                time.sleep(30)  # wait for 30 sec
-                call = AgoraCallHistory.objects.filter(
-                    id=call_id, 
-                    status='pending'
-                ).first()
+                time.sleep(30)  
+                call = AgoraCallHistory.objects.filter(id=call_id, status='pending').first()
                 if call:
                     call.status = 'missed'
                     call.is_active = False
                     call.end_time = timezone.now()
                     call.save(update_fields=["status", "is_active", "end_time"])
                     Executive.objects.filter(id=executive_id).update(on_call=False)
+                    
+                    try:
+                        channel_layer = get_channel_layer()
+                        if channel_layer:
+                            executive_group_name = f"user_executive_{executive_id}"
+                            caller_group_name = f"user_client_{call.user_id}"
+                            
+                            async_to_sync(channel_layer.group_send)(
+                                executive_group_name,
+                                {
+                                    'type': 'call_missed',
+                                    'call_id': call_id
+                                }
+                            )
+                            
+                            async_to_sync(channel_layer.group_send)(
+                                caller_group_name,
+                                {
+                                    'type': 'call_missed',
+                                    'call_id': call_id
+                                }
+                            )
+                    except Exception as e:
+                        print(f"WebSocket missed call notification failed: {e}")
 
             threading.Thread(
                 target=clear_on_call_if_not_joined, 
-                args=(call_history.id, executive_id),
-                daemon=True  # daemon so it won't block server shutdown
+                args=(call_history.id, executive.id),
+                daemon=True
             ).start()
 
             return Response({
@@ -70,11 +135,11 @@ class CallInitiateView(APIView):
                 "executive_id": executive_id,
                 "channel_name": channel_name,
                 "caller_uid": caller_uid,
-                "token": token
+                "token": token,
+                "status": "pending"
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 
 class GetCallByChannelView(APIView):
@@ -104,19 +169,36 @@ class MarkJoinedView(APIView):
 class EndCallView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request):
-        s = EndCallSerializer(data=request.data)
-        s.is_valid(raise_exception=True)
-        channel = s.validated_data["channel_name"]
-        req_id = s.validated_data.get("request_id")
-
+    def post(self, request, call_id):
         try:
-            call = AgoraCallHistory.objects.get(channel_name=channel, is_active=True)
+            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
         except AgoraCallHistory.DoesNotExist:
-            return Response({"ok": True, "note": "already ended or not found"})
+            return Response({"error": "Call not found or already ended"}, status=404)
 
-        call.end_call(ender="client", request_id=req_id)
-        return Response({"ok": True})
+        call.end_call(ender="client")
+        
+        # Send WebSocket notifications with error handling
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                # Notify both parties
+                caller_group = f"user_client_{call.user_id}"
+                executive_group = f"user_executive_{call.executive_id}"
+                
+                for group_name in [caller_group, executive_group]:
+                    async_to_sync(channel_layer.group_send)(
+                        group_name,
+                        {
+                            'type': 'call_ended',
+                            'call_id': call_id,
+                            'reason': 'Call ended by user',
+                            'ended_by': 'client'
+                        }
+                    )
+        except Exception as e:
+            print(f"WebSocket end call notification failed: {e}")
+
+        return Response({"ok": True, "message": "Call ended"})
 
 
 class AgoraWebhookView(APIView):
@@ -211,3 +293,39 @@ class EndCallView(APIView):
         call.end_call(ender="client")
         return Response({"ok": True, "message": "Call ended"})
 
+
+# import pika
+
+# try:
+#     conn = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+#     print("Connected to RabbitMQ")
+#     conn.close()
+# except Exception as e:
+#     print("RabbitMQ not reachable:", e)
+
+
+# ________________________________________________________________________________________________________________________
+
+# Quick test script
+import pika
+
+# Test message sending and receiving
+connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+channel = connection.channel()
+
+# Declare a test queue
+channel.queue_declare(queue='test')
+
+# Send a test message
+channel.basic_publish(exchange='', routing_key='test', body='Hello RabbitMQ!')
+print(" Message sent!")
+
+# Get the message back
+method_frame, header_frame, body = channel.basic_get(queue='test')
+if body:
+    print(f" Message received: {body.decode()}")
+    channel.basic_ack(method_frame.delivery_tag)
+else:
+    print("No message in queue")
+
+connection.close()

@@ -53,7 +53,7 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'profession', 'skills', 'place', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
-            'account_number', 'ifsc_code', 'stats','is_offline','is_online'
+            'account_number', 'ifsc_code', 'stats','is_offline','is_online','on_call'
         ]
         read_only_fields = ['id', 'created_at', 'last_login', 'stats']
 
