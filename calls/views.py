@@ -255,7 +255,7 @@ class CallJoinView(APIView):
             "channel_name": call.channel_name,
             "status": call.status,
             "uid": call.uid,  # caller
-            "callee_uid": call.callee_uid,  # now filled
+            "callee_uid": call.callee_uid,  
             "token": call.token,  # caller token
             "executive_token": call.executive_token,  # executive token
             "joined_at": call.joined_at,
@@ -289,4 +289,61 @@ class EndCallView(APIView):
         call.end_call(ender="client")
         return Response({"ok": True, "message": "Call ended"})
 
+from users.models import UserProfile
+from rest_framework import generics
+from django.db.models import Avg
 
+#Create rating for executive
+class CreateCallRatingAPIView(APIView):
+    def post(self, request, user_id, executive_id):
+        try:
+            user = UserProfile.objects.get(id=user_id)
+            executive = Executive.objects.get(id=executive_id)
+        except (UserProfile.DoesNotExist, Executive.DoesNotExist):
+            return Response({"error": "User or Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        data = request.data.copy()
+        data['user'] = user.id
+        data['executive'] = executive.id
+
+        serializer = CallRatingSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#All user ratings
+
+class CallRatingListAPIView(generics.ListAPIView):
+    queryset = CallRating.objects.filter(is_deleted=False)
+    serializer_class = CallRatingSerializer
+
+#  Ratings for an executive
+
+class ExecutiveRatingsAPIView(generics.ListAPIView):
+    serializer_class = CallRatingSerializer
+
+    def get_queryset(self):
+        executive_id = self.kwargs['executive_id']
+        return CallRating.objects.filter(executive_id=executive_id, is_deleted=False)
+    
+
+# Ratings for a user
+class UserRatingsAPIView(generics.ListAPIView):
+    serializer_class = CallRatingSerializer
+
+    def get_queryset(self):
+        user_id = self.kwargs['user_id']
+        return CallRating.objects.filter(user_id=user_id, is_deleted=False)
+    
+#  Average rating for an executive
+class ExecutiveAverageRatingAPIView(APIView):
+    def get(self, request, executive_id):
+        avg_rating = CallRating.objects.filter(
+            executive_id=executive_id, is_deleted=False
+        ).aggregate(average=Avg('stars'))['average']
+
+        return Response({
+            "executive_id": executive_id,
+            "average_rating": round(avg_rating, 2) if avg_rating else 0
+        }, status=status.HTTP_200_OK)
