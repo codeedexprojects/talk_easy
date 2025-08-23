@@ -42,13 +42,10 @@ class CallInitiateView(APIView):
             # --- Validations ---
             if not executive.is_online:
                 return Response({"detail": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
-
             if executive.is_banned:
                 return Response({"detail": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
-
             if executive.is_suspended:
                 return Response({"detail": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
-
             if executive.on_call:
                 return Response({"detail": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -71,65 +68,64 @@ class CallInitiateView(APIView):
                 user=request.user
             )
 
+            # --- WebSocket notification for incoming call ---
             try:
                 channel_layer = get_channel_layer()
                 if channel_layer:
-                    executive_group_name = f"user_executive_{executive_id}"
-                    
                     async_to_sync(channel_layer.group_send)(
-                        executive_group_name,
+                        f"user_executive_{executive_id}",
                         {
-                            'type': 'incoming_call',
-                            'call_id': call_history.id,
-                            'channel_name': channel_name,
-                            'caller_name': getattr(request.user, 'first_name', 'Unknown'),
-                            'caller_uid': caller_uid,
-                            'timestamp': call_history.start_time.isoformat()
+                            "type": "incoming_call",
+                            "call_id": call_history.id,
+                            "channel_name": channel_name,
+                            "caller_name": getattr(request.user, "first_name", "Unknown"),
+                            "caller_uid": caller_uid,
+                            "timestamp": call_history.start_time.isoformat()
                         }
                     )
             except Exception as e:
-                print(f"WebSocket notification failed: {e}")
+                print(f"WebSocket incoming_call failed: {e}")
 
-            def clear_on_call_if_not_joined(call_id, executive_id):
-                time.sleep(30)  
-                call = AgoraCallHistory.objects.filter(id=call_id, status='pending').first()
+            # --- Handle missed call after 30s if not picked ---
+            def clear_on_call_if_not_joined(call_id, executive_id, caller_id):
+                time.sleep(30)
+                call = AgoraCallHistory.objects.filter(id=call_id, status="pending").first()
                 if call:
-                    call.status = 'missed'
+                    call.status = "missed"
                     call.is_active = False
                     call.end_time = timezone.now()
                     call.save(update_fields=["status", "is_active", "end_time"])
                     Executive.objects.filter(id=executive_id).update(on_call=False)
-                    
+
                     try:
                         channel_layer = get_channel_layer()
                         if channel_layer:
-                            executive_group_name = f"user_executive_{executive_id}"
-                            caller_group_name = f"user_client_{call.user_id}"
-                            
+                            # Notify executive
                             async_to_sync(channel_layer.group_send)(
-                                executive_group_name,
+                                f"user_executive_{executive_id}",
                                 {
-                                    'type': 'call_missed',
-                                    'call_id': call_id
+                                    "type": "call_missed",
+                                    "call_id": call_id
                                 }
                             )
-                            
+                            # Notify caller
                             async_to_sync(channel_layer.group_send)(
-                                caller_group_name,
+                                f"user_client_{caller_id}",
                                 {
-                                    'type': 'call_missed',
-                                    'call_id': call_id
+                                    "type": "call_missed",
+                                    "call_id": call_id
                                 }
                             )
                     except Exception as e:
-                        print(f"WebSocket missed call notification failed: {e}")
+                        print(f"WebSocket call_missed failed: {e}")
 
             threading.Thread(
-                target=clear_on_call_if_not_joined, 
-                args=(call_history.id, executive.id),
+                target=clear_on_call_if_not_joined,
+                args=(call_history.id, executive.id, request.user.id),
                 daemon=True
             ).start()
 
+            # --- Response ---
             return Response({
                 "id": call_history.id,
                 "executive_id": executive_id,
@@ -294,38 +290,3 @@ class EndCallView(APIView):
         return Response({"ok": True, "message": "Call ended"})
 
 
-# import pika
-
-# try:
-#     conn = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-#     print("Connected to RabbitMQ")
-#     conn.close()
-# except Exception as e:
-#     print("RabbitMQ not reachable:", e)
-
-
-# ________________________________________________________________________________________________________________________
-
-# Quick test script
-import pika
-
-# Test message sending and receiving
-connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-channel = connection.channel()
-
-# Declare a test queue
-channel.queue_declare(queue='test')
-
-# Send a test message
-channel.basic_publish(exchange='', routing_key='test', body='Hello RabbitMQ!')
-print(" Message sent!")
-
-# Get the message back
-method_frame, header_frame, body = channel.basic_get(queue='test')
-if body:
-    print(f" Message received: {body.decode()}")
-    channel.basic_ack(method_frame.delivery_tag)
-else:
-    print("No message in queue")
-
-connection.close()
