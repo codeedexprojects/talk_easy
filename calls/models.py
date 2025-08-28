@@ -101,3 +101,16 @@ class AgoraCallHistory(models.Model):
             call.end_time = timezone.now()
             call.save()
 
+
+class CallRating(models.Model):
+    executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE, related_name="call_ratings")
+    user = models.ForeignKey('users.UserProfile', on_delete=models.CASCADE, related_name="call_ratings")
+    execallhistory = models.ForeignKey(AgoraCallHistory, on_delete=models.CASCADE, related_name="ratings")
+    stars = models.PositiveSmallIntegerField()
+    comment = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_deleted = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Rating for {self.executive} by {self.user} - {self.stars} Stars"
+    

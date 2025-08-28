@@ -1,0 +1,44 @@
+from rest_framework import serializers
+from .models import RechargePlanCatogary, RechargePlan
+from decimal import Decimal
+
+class RechargePlanCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RechargePlanCatogary
+        fields = '__all__'
+        read_only_fields = ['created_at', 'is_deleted']
+
+
+class RechargePlanSerializer(serializers.ModelSerializer):
+    final_price = serializers.SerializerMethodField()
+    adjusted_coin_package = serializers.SerializerMethodField()
+    total_talktime_minutes = serializers.SerializerMethodField()  
+
+    class Meta:
+        model = RechargePlan
+        fields = '__all__'
+        read_only_fields = ['is_deleted', 'total_talktime']  
+
+    def get_final_price(self, obj):
+        return obj.calculate_final_price()
+
+    def get_adjusted_coin_package(self, obj):
+        return obj.get_adjusted_coin_package()
+
+    def get_total_talktime_minutes(self, obj):  
+        minutes = obj.get_adjusted_coin_package() / 180
+        return f"Your plan talktime is upto {minutes:.0f} minutes"
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        instance.total_talktime = instance.calculate_talk_time_minutes()  
+        instance.save()
+        return instance
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        instance.total_talktime = instance.calculate_talk_time_minutes()  
+        instance.save()
+        return instance
+
+
