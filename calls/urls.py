@@ -11,5 +11,11 @@ urlpatterns = [
     path("agora/webhook/", AgoraWebhookView.as_view(), name="agora-webhook"),
     path("calls/<int:call_id>/end/", EndCallView.as_view(), name="end-call"),
     path("calls/<int:call_id>/reject/", RejectCallView.as_view(), name="reject-call"),
+    #ratings
+    path('all-ratings/', CallRatingListAPIView.as_view(), name='all-ratings'),
+    path('create-rating/<int:user_id>/<int:executive_id>/', CreateCallRatingAPIView.as_view(), name='create-rating'),
+    path('executive-ratings/<int:executive_id>/', ExecutiveRatingsAPIView.as_view(), name='executive-ratings'),
+    path('user-ratings/<int:user_id>/', UserRatingsAPIView.as_view(), name='user-ratings'),
+    path('executive-average-ratings/<int:executive_id>/', ExecutiveAverageRatingAPIView.as_view(), name='executive-avg-rating'),
 
 ]

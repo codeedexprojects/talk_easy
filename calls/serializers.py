@@ -1,6 +1,6 @@
 # calls/serializers.py
 from rest_framework import serializers
-from .models import AgoraCallHistory
+from .models import AgoraCallHistory,CallRating
 
 class InitiateCallSerializer(serializers.Serializer):
     executive_id = serializers.IntegerField()
@@ -46,10 +46,9 @@ class CallDetailSerializer(serializers.ModelSerializer):
     
 class EndCallSerializer(serializers.Serializer):
     channel_name = serializers.CharField(max_length=100)
-    request_id = serializers.CharField(max_length=64, required=False)  # for idempotency
+    request_id = serializers.CharField(max_length=64, required=False)  
 
 class WebhookSerializer(serializers.Serializer):
-    # Adjust to your Agora webhook payload structure
     eventType = serializers.CharField()
     channelName = serializers.CharField()
     uid = serializers.CharField()
@@ -61,3 +60,9 @@ class CallInitiateSerializer(serializers.Serializer):
     executive_id = serializers.IntegerField(required=True)
     channel_name = serializers.CharField(required=True)
     caller_uid = serializers.IntegerField(required=True)
+
+class CallRatingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CallRating
+        fields = '__all__'
+        read_only_fields = ['created_at', 'is_deleted']
