@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from django.shortcuts import get_object_or_404
 from .models import AgoraCallHistory
 from calls.serializers import *
 from calls.utils import build_agora_token
@@ -34,108 +34,97 @@ class CallInitiateView(APIView):
             caller_uid = serializer.validated_data['caller_uid']
 
             # Get executive
-            try:
-                executive = Executive.objects.get(id=executive_id)
-            except Executive.DoesNotExist:
-                return Response({"detail": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+            executive = get_object_or_404(Executive, id=executive_id)
 
-            # --- Validations ---
-            if not executive.is_online:
-                return Response({"detail": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
-            if executive.is_banned:
-                return Response({"detail": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
-            if executive.is_suspended:
-                return Response({"detail": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
-            if executive.on_call:
-                return Response({"detail": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
+            # Validations
+            validation_error = self.validate_executive(executive)
+            if validation_error:
+                return validation_error
 
             # Mark executive as on call
             executive.on_call = True
             executive.save(update_fields=["on_call"])
 
-            # Generate Agora token
-            token = generate_agora_token(channel_name, caller_uid)
+            # Generate tokens for both caller and executive
+            caller_token = generate_agora_token(channel_name, caller_uid)
+            callee_uid = caller_uid + 1000  # Simple UID generation
+            executive_token = generate_agora_token(channel_name, callee_uid)
 
-            # Save call history
+            # Create call history
             call_history = AgoraCallHistory.objects.create(
                 executive=executive,
                 channel_name=channel_name,
                 uid=caller_uid,
-                token=token,
+                callee_uid=callee_uid,
+                token=caller_token,
+                executive_token=executive_token,
                 status="pending",
                 is_active=True,
-                start_time=timezone.now(),
                 user=request.user
             )
 
-            # --- WebSocket notification for incoming call ---
-            try:
-                channel_layer = get_channel_layer()
-                if channel_layer:
-                    async_to_sync(channel_layer.group_send)(
-                        f"user_executive_{executive_id}",
-                        {
-                            "type": "incoming_call",
-                            "call_id": call_history.id,
-                            "channel_name": channel_name,
-                            "caller_name": getattr(request.user, "first_name", "Unknown"),
-                            "caller_uid": caller_uid,
-                            "timestamp": call_history.start_time.isoformat()
-                        }
-                    )
-            except Exception as e:
-                print(f"WebSocket incoming_call failed: {e}")
+            # Send WebSocket notification
+            self.send_incoming_call_notification(
+                executive_id, call_history, request.user
+            )
 
-            # --- Handle missed call after 30s if not picked ---
-            def clear_on_call_if_not_joined(call_id, executive_id, caller_id):
-                time.sleep(30)
-                call = AgoraCallHistory.objects.filter(id=call_id, status="pending").first()
-                if call:
-                    call.status = "missed"
-                    call.is_active = False
-                    call.end_time = timezone.now()
-                    call.save(update_fields=["status", "is_active", "end_time"])
-                    Executive.objects.filter(id=executive_id).update(on_call=False)
+            # Schedule missed call check (but don't use threading)
+            self.schedule_missed_call_check(call_history.id)
 
-                    try:
-                        channel_layer = get_channel_layer()
-                        if channel_layer:
-                            # Notify executive
-                            async_to_sync(channel_layer.group_send)(
-                                f"user_executive_{executive_id}",
-                                {
-                                    "type": "call_missed",
-                                    "call_id": call_id
-                                }
-                            )
-                            # Notify caller
-                            async_to_sync(channel_layer.group_send)(
-                                f"user_client_{caller_id}",
-                                {
-                                    "type": "call_missed",
-                                    "call_id": call_id
-                                }
-                            )
-                    except Exception as e:
-                        print(f"WebSocket call_missed failed: {e}")
-
-            threading.Thread(
-                target=clear_on_call_if_not_joined,
-                args=(call_history.id, executive.id, request.user.id),
-                daemon=True
-            ).start()
-
-            # --- Response ---
             return Response({
                 "id": call_history.id,
                 "executive_id": executive_id,
                 "channel_name": channel_name,
                 "caller_uid": caller_uid,
-                "token": token,
+                "token": caller_token,
                 "status": "pending"
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def validate_executive(self, executive):
+        """Validate executive availability"""
+        if not executive.is_online:
+            return Response({"detail": "Executive is offline"}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        if executive.is_banned:
+            return Response({"detail": "Executive is banned"}, 
+                          status=status.HTTP_403_FORBIDDEN)
+        if executive.is_suspended:
+            return Response({"detail": "Executive is suspended"}, 
+                          status=status.HTTP_403_FORBIDDEN)
+        if executive.on_call:
+            return Response({"detail": "Executive is on another call"}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        return None
+
+    def send_incoming_call_notification(self, executive_id, call_history, caller):
+        """Send incoming call notification via WebSocket"""
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"executive_{executive_id}",
+                    {
+                        "type": "incoming_call",
+                        "call_id": call_history.id,
+                        "channel_name": call_history.channel_name,
+                        "caller_name": getattr(caller, "first_name", "Unknown"),
+                        "caller_uid": call_history.uid,
+                        "executive_token": call_history.executive_token,
+                        "callee_uid": call_history.callee_uid,
+                        "timestamp": call_history.start_time.isoformat()
+                    }
+                )
+        except Exception as e:
+            print(f"WebSocket notification failed: {e}")
+
+    def schedule_missed_call_check(self, call_id):
+        """Schedule missed call check using Celery or similar"""
+        # Use Celery task instead of threading
+        from .tasks import mark_call_as_missed
+        mark_call_as_missed.apply_async(args=[call_id], countdown=30)
+
 
 
 class GetCallByChannelView(APIView):
