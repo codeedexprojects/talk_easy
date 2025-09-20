@@ -328,3 +328,20 @@ class UpdateExecutiveOnlineStatusAPIView(APIView):
             return Response({"detail": "Status updated successfully.", "status": True}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class ExecutiveSuspendToggleView(APIView):
+    permission_classes = [IsAdminUser]  
+    def post(self, request, id):
+        executive = get_object_or_404(Executive, id=id)        
+        executive.is_suspended = not executive.is_suspended
+        executive.save()
+        status_text = "suspended" if executive.is_suspended else "unsuspended"
+        return Response(
+            {
+                "id": executive.id,
+                "name": executive.name,
+                "is_suspended": executive.is_suspended,
+                "message": f"Executive has been {status_text} successfully."
+            },
+            status=status.HTTP_200_OK
+        )

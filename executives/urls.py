@@ -15,5 +15,6 @@ urlpatterns = [
     path('executive/<int:executive_id>/unblock-user/<int:user_id>/', UnblockUserAPIView.as_view(), name='unblock-user'),#unblock
     path('executive/<int:executive_id>/update-status/', UpdateExecutiveStatusAPIView.as_view(), name='update-executive-status'),#update stts - ban/unban-admin
     path('executive/<int:id>/update-online-status/', UpdateExecutiveOnlineStatusAPIView.as_view(), name='update-online-status'),
+    path('suspend-executives/<int:id>/', ExecutiveSuspendToggleView.as_view(), name='executive-suspend-toggle'), #suspend or unsuspend
 
 ]

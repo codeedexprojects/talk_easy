@@ -93,15 +93,7 @@ class SuperuserLoginView(generics.GenericAPIView):
             # For now, we'll update the admin's last login
             admin.last_login = timezone.now()
             admin.save(update_fields=['last_login'])
-            
-            # Optional: Create a custom session log
-            # SessionLog.objects.create(
-            #     admin=admin,
-            #     ip_address=ip_address,
-            #     user_agent=user_agent,
-            #     login_time=timezone.now(),
-            #     token_jti=jwt.decode(token, options={"verify_signature": False}).get('jti')
-            # )
+          
             
         except Exception:
             # Don't fail login if session info storage fails
