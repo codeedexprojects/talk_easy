@@ -72,7 +72,6 @@ class SessionSerializer(serializers.Serializer):
 
 
 class LogoutAllSessionsAPIView(APIView):
-    authentication_classes = [SessionAuthentication, TokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     def post(self, request, *args, **kwargs):
