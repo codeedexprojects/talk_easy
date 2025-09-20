@@ -24,5 +24,16 @@ urlpatterns = [
     path('profile-picture/status/<int:executive_id>/',ExecutiveProfilePictureStatusView.as_view(),name='executive-profile-picture-status'),    
     # Get profile picture status (for authenticated executive)
     path('my-profile-picture/status/',ExecutiveProfilePictureStatusView.as_view(),name='my-executive-profile-picture-status'),
-
+    #admin
+    path('admin/profile-pictures/',AdminProfilePictureListView.as_view(),name='admin-profile-pictures-list'),    
+    # Get specific profile picture details
+    path('admin/profile-pictures/<int:picture_id>/',AdminProfilePictureDetailView.as_view(),name='admin-profile-picture-detail'),  
+    # Approve profile picture
+    path('admin/profile-pictures/<int:picture_id>/approve/',AdminProfilePictureApproveView.as_view(),name='admin-profile-picture-approve'),   
+    # Reject profile picture
+    path('admin/profile-pictures/<int:picture_id>/reject/',AdminProfilePictureRejectView.as_view(),name='admin-profile-picture-reject'),   
+    # Bulk actions (approve/reject multiple)
+    path('admin/profile-pictures/bulk-action/',AdminProfilePictureBulkActionView.as_view(),name='admin-profile-pictures-bulk-action'),   
+    # Get statistics
+    path('admin/profile-pictures/stats/',AdminProfilePictureStatsView.as_view(),name='admin-profile-pictures-stats'),
 ]

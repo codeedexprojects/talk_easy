@@ -456,3 +456,233 @@ class ExecutiveProfilePictureStatusView(APIView):
                 {"error": "Executive not found"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+from django.db.models import Q      
+class AdminProfilePictureListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication] 
+    
+    def get(self, request):
+        queryset = ExecutiveProfilePicture.objects.select_related('executive').all()        
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)        
+        executive_id = request.query_params.get('executive_id')
+        if executive_id:
+            queryset = queryset.filter(executive_id=executive_id)        
+        search = request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(executive__name__icontains=search) |
+                Q(executive__email__icontains=search)
+            )        
+        queryset = queryset.order_by('-created_at')
+        
+        page = request.query_params.get('page', 1)
+        page_size = request.query_params.get('page_size', 20)
+        
+        try:
+            page = int(page)
+            page_size = int(page_size)
+            start = (page - 1) * page_size
+            end = start + page_size
+            
+            total_count = queryset.count()
+            paginated_queryset = queryset[start:end]
+            
+            serializer = ExecutiveProfilePictureSerializer(
+                paginated_queryset, 
+                many=True, 
+                context={'request': request}
+            )
+            
+            return Response({
+                "count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": (total_count + page_size - 1) // page_size,
+                "results": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except ValueError:
+            return Response(
+                {"error": "Invalid page or page_size parameter"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+class AdminProfilePictureDetailView(APIView):
+    authentication_classes = [JWTAuthentication]  
+    permission_classes = [IsAdminUser]    
+    def get(self, request, picture_id):
+        try:
+            profile_picture = ExecutiveProfilePicture.objects.select_related('executive').get(id=picture_id)
+            serializer = ExecutiveProfilePictureSerializer(profile_picture, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except ExecutiveProfilePicture.DoesNotExist:
+            return Response(
+                {"error": "Profile picture not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class AdminProfilePictureApproveView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]   
+    def post(self, request, picture_id):
+        try:
+            profile_picture = ExecutiveProfilePicture.objects.get(id=picture_id)
+            
+            if profile_picture.status == 'approved':
+                return Response(
+                    {"message": "Profile picture is already approved"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            profile_picture.approve()
+            
+            serializer = ExecutiveProfilePictureSerializer(profile_picture, context={'request': request})
+            
+            return Response({
+                "message": "Profile picture approved successfully",
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except ExecutiveProfilePicture.DoesNotExist:
+            return Response(
+                {"error": "Profile picture not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class AdminProfilePictureRejectView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]  
+    
+    def post(self, request, picture_id):
+        serializer = AdminProfilePictureActionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            profile_picture = ExecutiveProfilePicture.objects.get(id=picture_id)
+            
+            if profile_picture.status == 'rejected':
+                return Response(
+                    {"message": "Profile picture is already rejected"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            profile_picture.reject()            
+            serializer_response = ExecutiveProfilePictureSerializer(profile_picture, context={'request': request})
+            
+            return Response({
+                "message": "Profile picture rejected successfully",
+                "data": serializer_response.data,
+                "reason": serializer.validated_data.get('reason', '')
+            }, status=status.HTTP_200_OK)
+            
+        except ExecutiveProfilePicture.DoesNotExist:
+            return Response(
+                {"error": "Profile picture not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class AdminProfilePictureBulkActionView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]  
+    
+    def post(self, request):
+        action = request.data.get('action')
+        picture_ids = request.data.get('picture_ids', [])
+        reason = request.data.get('reason', '')
+        
+        if action not in ['approve', 'reject']:
+            return Response(
+                {"error": "Action must be either 'approve' or 'reject'"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not picture_ids or not isinstance(picture_ids, list):
+            return Response(
+                {"error": "picture_ids must be a non-empty list"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            profile_pictures = ExecutiveProfilePicture.objects.filter(id__in=picture_ids)
+            
+            if not profile_pictures.exists():
+                return Response(
+                    {"error": "No profile pictures found with provided IDs"}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            updated_count = 0
+            results = []
+            
+            for picture in profile_pictures:
+                if action == 'approve' and picture.status != 'approved':
+                    picture.approve()
+                    updated_count += 1
+                    results.append({
+                        "id": picture.id,
+                        "executive": picture.executive.name,
+                        "status": "approved",
+                        "message": "Approved successfully"
+                    })
+                elif action == 'reject' and picture.status != 'rejected':
+                    picture.reject()
+                    updated_count += 1
+                    results.append({
+                        "id": picture.id,
+                        "executive": picture.executive.name,
+                        "status": "rejected",
+                        "message": "Rejected successfully",
+                        "reason": reason
+                    })
+                else:
+                    results.append({
+                        "id": picture.id,
+                        "executive": picture.executive.name,
+                        "status": picture.status,
+                        "message": f"Already {picture.status}"
+                    })
+            
+            return Response({
+                "message": f"Bulk {action} completed",
+                "updated_count": updated_count,
+                "total_processed": len(results),
+                "results": results
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"error": f"An error occurred during bulk action: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminProfilePictureStatsView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]  
+    
+    def get(self, request):
+        total = ExecutiveProfilePicture.objects.count()
+        pending = ExecutiveProfilePicture.objects.filter(status='pending').count()
+        approved = ExecutiveProfilePicture.objects.filter(status='approved').count()
+        rejected = ExecutiveProfilePicture.objects.filter(status='rejected').count()
+        
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        week_ago = timezone.now() - timedelta(days=7)
+        recent = ExecutiveProfilePicture.objects.filter(created_at__gte=week_ago).count()
+        
+        return Response({
+            "total": total,
+            "pending": pending,
+            "approved": approved,
+            "rejected": rejected,
+            "recent_submissions": recent,
+            "approval_rate": round((approved / total * 100) if total > 0 else 0, 2)
+        }, status=status.HTTP_200_OK)

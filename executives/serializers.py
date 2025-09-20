@@ -128,3 +128,50 @@ class ExecutiveProfilePictureUploadSerializer(serializers.Serializer):
             )
         
         return value
+    
+class AdminProfilePictureActionSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        max_length=500, 
+        required=False, 
+        allow_blank=True,
+        help_text="Optional reason for rejection"
+    )
+
+
+class AdminProfilePictureListSerializer(serializers.ModelSerializer):
+    executive_name = serializers.CharField(source='executive.name', read_only=True)
+    executive_email = serializers.CharField(source='executive.email', read_only=True)
+    executive_mobile = serializers.CharField(source='executive.mobile_number', read_only=True)
+    profile_photo_url = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    days_since_upload = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ExecutiveProfilePicture
+        fields = [
+            'id',
+            'executive',
+            'executive_name',
+            'executive_email',
+            'executive_mobile',
+            'profile_photo',
+            'profile_photo_url',
+            'status',
+            'status_display',
+            'created_at',
+            'updated_at',
+            'days_since_upload'
+        ]
+    
+    def get_profile_photo_url(self, obj):
+        if obj.profile_photo:
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.profile_photo.url)
+            return obj.profile_photo.url
+        return None
+    
+    def get_days_since_upload(self, obj):
+        from django.utils import timezone
+        delta = timezone.now() - obj.created_at
+        return delta.days
