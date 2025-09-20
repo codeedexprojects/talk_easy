@@ -329,7 +329,7 @@ class UpdateExecutiveOnlineStatusAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class ExecutiveSuspendToggleView(APIView):
-    permission_classes = [IsAuthenticated]  
+    permission_classes = []  
     def post(self, request, id):
         executive = get_object_or_404(Executive, id=id)        
         executive.is_suspended = not executive.is_suspended
