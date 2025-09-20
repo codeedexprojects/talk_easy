@@ -177,7 +177,6 @@ class ExecutiveLogoutView(APIView):
         return Response({"message": "Logout successful."}, status=200)
 
 from django.shortcuts import get_object_or_404
-from .permissions import IsAdminUser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from accounts.pagination import CustomExecutivePagination
 from rest_framework.generics import ListAPIView
@@ -330,7 +329,7 @@ class UpdateExecutiveOnlineStatusAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class ExecutiveSuspendToggleView(APIView):
-    permission_classes = [IsAdminUser]  
+    permission_classes = [IsAuthenticated]  
     def post(self, request, id):
         executive = get_object_or_404(Executive, id=id)        
         executive.is_suspended = not executive.is_suspended
