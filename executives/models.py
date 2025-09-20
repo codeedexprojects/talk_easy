@@ -92,3 +92,25 @@ class BlockedusersByExecutive(models.Model):
 
     def __str__(self):
         return f"{self.user.user_id} blocked {self.executive.executive_id}"
+    
+
+class ExecutiveProfilePicture(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+
+    executive = models.OneToOneField(Executive, on_delete=models.CASCADE)
+    profile_photo = models.ImageField(upload_to='executive_pictures/')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def approve(self):
+        self.status = 'approved'
+        self.save()
+
+    def reject(self):
+        self.status = 'rejected'
+        self.save()

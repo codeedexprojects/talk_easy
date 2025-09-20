@@ -16,5 +16,13 @@ urlpatterns = [
     path('executive/<int:executive_id>/update-status/', UpdateExecutiveStatusAPIView.as_view(), name='update-executive-status'),#update stts - ban/unban-admin
     path('executive/<int:id>/update-online-status/', UpdateExecutiveOnlineStatusAPIView.as_view(), name='update-online-status'),
     path('suspend-executives/<int:id>/', ExecutiveSuspendToggleView.as_view(), name='executive-suspend-toggle'), #suspend or unsuspend
+    # Upload/Update profile picture (with executive ID)
+    path('profile-picture/<int:executive_id>/',ExecutiveProfilePictureUploadView.as_view(),name='executive-profile-picture'),   
+    # Upload/Update profile picture (for authenticated executive without ID)
+    path('my-profile-picture/',ExecutiveProfilePictureUploadView.as_view(), name='my-executive-profile-picture'),    
+    # Get profile picture status (with executive ID)
+    path('profile-picture/status/<int:executive_id>/',ExecutiveProfilePictureStatusView.as_view(),name='executive-profile-picture-status'),    
+    # Get profile picture status (for authenticated executive)
+    path('my-profile-picture/status/',ExecutiveProfilePictureStatusView.as_view(),name='my-executive-profile-picture-status'),
 
 ]
