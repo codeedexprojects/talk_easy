@@ -25,6 +25,7 @@ from rest_framework.authentication import SessionAuthentication, TokenAuthentica
 from rest_framework.authtoken.models import Token
 from django.contrib.auth.models import AnonymousUser
 from rest_framework import serializers
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 class SuperuserLoginView(generics.GenericAPIView):
     serializer_class = SuperuserLoginSerializer
@@ -65,6 +66,7 @@ class SuperuserLoginView(generics.GenericAPIView):
 
 #admin session logout ---------------------------------------------------------
 class SessionSerializer(serializers.Serializer):
+    """Serializer for session information"""
     session_key = serializers.CharField()
     expire_date = serializers.DateTimeField()
     ip_address = serializers.CharField(required=False)
@@ -72,7 +74,10 @@ class SessionSerializer(serializers.Serializer):
 
 
 class LogoutAllSessionsAPIView(APIView):
-    authentication_classes = [SessionAuthentication, TokenAuthentication]
+    """
+    API View to logout admin from all other sessions except current one
+    """
+    authentication_classes = [JWTAuthentication, SessionAuthentication, TokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     def post(self, request, *args, **kwargs):
@@ -159,7 +164,7 @@ class LogoutAllAndCurrentAPIView(APIView):
     """
     API View to logout admin from ALL sessions including current one
     """
-    authentication_classes = [SessionAuthentication, TokenAuthentication]
+    authentication_classes = [JWTAuthentication, SessionAuthentication, TokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     def post(self, request, *args, **kwargs):
@@ -222,7 +227,7 @@ class ActiveSessionsAPIView(APIView):
     """
     API View to get all active sessions for current admin
     """
-    authentication_classes = [SessionAuthentication, TokenAuthentication]
+    authentication_classes = [JWTAuthentication, SessionAuthentication, TokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     def get(self, request, *args, **kwargs):
@@ -273,7 +278,7 @@ class TerminateSpecificSessionAPIView(APIView):
     """
     API View to terminate a specific session by session key
     """
-    authentication_classes = [SessionAuthentication, TokenAuthentication]
+    authentication_classes = [JWTAuthentication, SessionAuthentication, TokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     def delete(self, request, session_key, *args, **kwargs):
