@@ -26,11 +26,13 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth.models import AnonymousUser
 from rest_framework import serializers
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.utils import timezone
+
 
 class SuperuserLoginView(generics.GenericAPIView):
     serializer_class = SuperuserLoginSerializer
     permission_classes = [AllowAny]
-    authentication_classes = []  
+    authentication_classes = []
 
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
@@ -51,17 +53,68 @@ class SuperuserLoginView(generics.GenericAPIView):
             admin.role = "superuser"
             admin.save(update_fields=["role"])
 
+        # Create refresh token
         refresh = RefreshToken.for_user(admin)
-
+        access_token = refresh.access_token
+        
+        # Store session information (optional - for tracking login details)
+        self._store_login_session_info(request, admin, str(access_token))
+        
+        # Get token info for response
+        access_payload = access_token.payload
+        refresh_payload = refresh.payload
+        
         return Response({
-            "access_token": str(refresh.access_token),
+            "access_token": str(access_token),
             "refresh_token": str(refresh),
             "user_id": admin.id,
             "email": admin.email,
             "role": admin.role,
             "is_superuser": admin.is_superuser,
             "is_staff": admin.is_staff,
+            "token_info": {
+                "access_expires_at": access_payload.get('exp'),
+                "refresh_expires_at": refresh_payload.get('exp'),
+                "issued_at": access_payload.get('iat')
+            }
         }, status=status.HTTP_200_OK)
+    
+    def _store_login_session_info(self, request, admin, token):
+        """
+        Store additional session information for tracking purposes
+        This is optional but useful for session management
+        """
+        try:
+            # Get client information
+            ip_address = self._get_client_ip(request)
+            user_agent = request.META.get('HTTP_USER_AGENT', '')
+            
+            # You can store this information in your Admin model or a separate SessionLog model
+            # For now, we'll update the admin's last login
+            admin.last_login = timezone.now()
+            admin.save(update_fields=['last_login'])
+            
+            # Optional: Create a custom session log
+            # SessionLog.objects.create(
+            #     admin=admin,
+            #     ip_address=ip_address,
+            #     user_agent=user_agent,
+            #     login_time=timezone.now(),
+            #     token_jti=jwt.decode(token, options={"verify_signature": False}).get('jti')
+            # )
+            
+        except Exception:
+            # Don't fail login if session info storage fails
+            pass
+    
+    def _get_client_ip(self, request):
+        """Get client IP address"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
 
 
 #admin session logout ---------------------------------------------------------
