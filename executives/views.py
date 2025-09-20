@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from executives.models import *
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
-
+from rest_framework.permissions import IsAdminUser
 
 def generate_executive_tokens(executive):
     refresh = RefreshToken.for_user(executive)  # You might need to customize this if it errors
