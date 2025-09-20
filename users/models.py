@@ -9,15 +9,14 @@ import uuid
 
 
 class UserProfileOutstandingToken(models.Model):
-    # If you have an Admin model, use it; otherwise keep UserProfile
     user = models.ForeignKey('UserProfile', on_delete=models.CASCADE, related_name='outstanding_tokens')
     jti = models.CharField(max_length=255, unique=True)  # JWT ID
-    token = models.TextField()  # the actual token string
+    token = models.TextField() 
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
 
     class Meta:
-        db_table = 'userprofile_outstanding_token'  # Explicitly set table name
+        db_table = 'userprofile_outstanding_token' 
 
     def __str__(self):
         return f'Token for {self.user} - {self.jti}'
