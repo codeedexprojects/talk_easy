@@ -14,9 +14,14 @@ from executives.models import *
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework.permissions import IsAdminUser
+# For admin-specific views
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+
+
 
 def generate_executive_tokens(executive):
-    refresh = RefreshToken.for_user(executive)  # You might need to customize this if it errors
+    refresh = RefreshToken.for_user(executive) 
     ExecutiveToken.objects.create(executive=executive, refresh_token=str(refresh))
     return {
         'refresh': str(refresh),
@@ -328,12 +333,20 @@ class UpdateExecutiveOnlineStatusAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+
+
 class ExecutiveSuspendToggleView(APIView):
-    permission_classes = []  
-    def post(self, request, id):
-        executive = get_object_or_404(Executive, id=id)        
+    authentication_classes = [JWTAuthentication]  
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, id): 
+        try:
+            executive = Executive.objects.get(id=id) 
+        except Executive.DoesNotExist:
+            return Response({"error": "Executive not found"}, status=404)
         executive.is_suspended = not executive.is_suspended
         executive.save()
+
         status_text = "suspended" if executive.is_suspended else "unsuspended"
         return Response(
             {
