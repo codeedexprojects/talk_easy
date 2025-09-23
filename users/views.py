@@ -278,20 +278,25 @@ from executives.models import *
 from executives.serializers import *
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from accounts.pagination import CustomUserPagination
 
 class ExecutiveListAPIView(APIView):
-    permission_classes = [IsAuthenticated]  
+    permission_classes = [IsAuthenticated]
+    pagination_class = CustomUserPagination
 
     def get(self, request):
         executives = Executive.objects.all().order_by('-created_at')
-        serializer = ExecutiveSerializer(executives, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(executives, request, view=self)
+        serializer = ExecutiveSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
         serializer = ExecutiveSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            # Notify WebSocket group
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
                 "executives_group",
@@ -752,8 +757,7 @@ class UserDeletionStatsView(APIView):
 
 
 class UserAccountStatusView(APIView):
-    permission_classes = [IsAuthenticated]
-    
+    permission_classes = [IsAuthenticated]    
     def get(self, request, user_id=None):
         try:
             if user_id and request.user.is_staff:

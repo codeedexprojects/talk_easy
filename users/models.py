@@ -6,11 +6,11 @@ import string, random
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 import uuid
-
+from executives.models import Executive
 
 class UserProfileOutstandingToken(models.Model):
     user = models.ForeignKey('UserProfile', on_delete=models.CASCADE, related_name='outstanding_tokens')
-    jti = models.CharField(max_length=255, unique=True)  # JWT ID
+    jti = models.CharField(max_length=255, unique=True) 
     token = models.TextField() 
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()

@@ -91,15 +91,12 @@ class ExecutiveLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Generate a 6-digit OTP
         otp = str(random.randint(100000, 999999))
 
-        # Store OTP in DB instead of cache
         executive.otp = otp
         executive.is_verified = False
         executive.save(update_fields=["otp", "is_verified"])
 
-        # Send OTP
         if not send_otp(mobile_number, otp):
             return Response({"message": "Failed to send OTP"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

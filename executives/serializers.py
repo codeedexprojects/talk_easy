@@ -44,7 +44,8 @@ class ExecutiveStatsSerializer(serializers.ModelSerializer):
         ]
 
 class ExecutiveSerializer(serializers.ModelSerializer):
-    stats = ExecutiveStatsSerializer(read_only=True) 
+    stats = ExecutiveStatsSerializer(read_only=True)
+    password = serializers.CharField(write_only=True, required=True)
 
     class Meta:
         model = Executive
@@ -53,9 +54,18 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'profession', 'skills', 'place', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
-            'account_number', 'ifsc_code', 'stats','is_offline','is_online','on_call'
+            'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
+            'on_call', 'password'  
         ]
         read_only_fields = ['id', 'created_at', 'last_login', 'stats']
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        executive = Executive(**validated_data)
+        executive.set_password(password) 
+        executive.save()
+        return executive
+
 
 
 class BlockUserSerializer(serializers.ModelSerializer):
@@ -175,3 +185,4 @@ class AdminProfilePictureListSerializer(serializers.ModelSerializer):
         from django.utils import timezone
         delta = timezone.now() - obj.created_at
         return delta.days
+    

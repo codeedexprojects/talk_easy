@@ -5,7 +5,6 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from accounts.managers import ExecutiveManager
 import uuid
 
-
 class Executive(AbstractBaseUser, PermissionsMixin):
     STATUS_CHOICES = [
         ('active', 'Active'),
