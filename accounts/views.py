@@ -370,3 +370,42 @@ class TerminateSpecificSessionAPIView(APIView):
                 'message': 'Session not found or already terminated',
                 'error_code': 'SESSION_NOT_FOUND'
             }, status=status.HTTP_404_NOT_FOUND)
+
+from executives.models import Executive
+from executives.serializers import ExecutiveSerializer
+from .pagination import *
+
+
+class UnverifiedExecutivesListView(APIView):
+    permission_classes = []  # replace with [IsAdminUser] later
+    pagination_class = CustomExecutivePagination
+
+    def get(self, request):
+        executives = Executive.objects.filter(is_verified=False).order_by("-id")
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(executives, request)
+        serializer = ExecutiveSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+
+class VerifyExecutiveView(APIView):
+    permission_classes = []  # replace with [IsAdminUser] later
+
+    def patch(self, request, id):
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"message": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        is_verified = request.data.get("is_verified")
+        if is_verified is None:
+            return Response({"message": "is_verified field is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        executive.is_verified = bool(is_verified)
+        executive.save(update_fields=["is_verified"])
+
+        return Response({
+            "message": "Executive verification status updated",
+            "executive_id": executive.id,
+            "is_verified": executive.is_verified
+        }, status=status.HTTP_200_OK)

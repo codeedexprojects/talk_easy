@@ -3,21 +3,32 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import RechargePlanCatogary, RechargePlan
 from .serializers import RechargePlanCategorySerializer, RechargePlanSerializer
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
 
 #  Category Create & List
 class RechargePlanCategoryListCreateAPIView(generics.ListCreateAPIView):
     queryset = RechargePlanCatogary.objects.filter(is_deleted=False)
     serializer_class = RechargePlanCategorySerializer
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+
 
 
 #  Category Detail
 class RechargePlanCategoryDetailAPIView(generics.RetrieveAPIView):
     queryset = RechargePlanCatogary.objects.filter(is_deleted=False)
     serializer_class = RechargePlanCategorySerializer
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
 
 
 #  Category Soft Delete
 class RechargePlanCategoryDeleteAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+
     def delete(self, request, pk):
         try:
             category = RechargePlanCatogary.objects.get(pk=pk, is_deleted=False)
@@ -32,16 +43,23 @@ class RechargePlanCategoryDeleteAPIView(APIView):
 class RechargePlanListCreateAPIView(generics.ListCreateAPIView):
     queryset = RechargePlan.objects.filter(is_deleted=False)
     serializer_class = RechargePlanSerializer
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
 
 
 #  Plan Detail
 class RechargePlanDetailAPIView(generics.RetrieveAPIView):
     queryset = RechargePlan.objects.filter(is_deleted=False)
     serializer_class = RechargePlanSerializer
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
 
 
 #  Plan Soft Delete
 class RechargePlanDeleteAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+
     def delete(self, request, pk):
         try:
             plan = RechargePlan.objects.get(pk=pk, is_deleted=False)

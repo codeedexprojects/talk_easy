@@ -4,6 +4,15 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from accounts.managers import ExecutiveManager
 import uuid
+from datetime import timedelta
+
+
+class Language(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+
+    def __str__(self):
+        return self.name
+
 
 class Executive(AbstractBaseUser, PermissionsMixin):
     STATUS_CHOICES = [
@@ -25,6 +34,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
     on_call = models.BooleanField(default=False)
     otp = models.CharField(max_length=6, null=True, blank=True)
     online = models.BooleanField(default=False)
+    languages_known = models.ManyToManyField('Language', related_name="executives", blank=True)
     is_verified = models.BooleanField(default=False)
     is_online = models.BooleanField(default=False)
     is_offline = models.BooleanField(default=False)
@@ -74,10 +84,27 @@ class ExecutiveStats(models.Model):
 
 class ExecutiveToken(models.Model):
     executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE)
+    access_token = models.CharField(max_length=255, unique=True,default='000') 
     refresh_token = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     revoked = models.BooleanField(default=False)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField() 
+
+
+    @classmethod
+    def generate(cls, executive):
+        access_token = uuid.uuid4().hex
+        refresh_token = uuid.uuid4().hex
+        expires_at = timezone.now() + timedelta(days=300)
+        return cls.objects.create(
+            executive=executive,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            revoked=False,
+            expires_at=expires_at
+        )
+
 
 class BlockedusersByExecutive(models.Model):
     user = models.ForeignKey('users.UserProfile', on_delete=models.CASCADE, related_name='blocked_users')

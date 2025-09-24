@@ -2,6 +2,12 @@ from rest_framework import serializers
 from executives.models import *
 from django.contrib.auth.hashers import make_password
 
+
+class LanguageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Language
+        fields = ['id', 'name']
+
 class ExecutiveSerializer(serializers.ModelSerializer):
     class Meta:
         model = Executive
@@ -45,7 +51,8 @@ class ExecutiveStatsSerializer(serializers.ModelSerializer):
 
 class ExecutiveSerializer(serializers.ModelSerializer):
     stats = ExecutiveStatsSerializer(read_only=True)
-    password = serializers.CharField(write_only=True, required=True)
+    password = serializers.CharField(write_only=True, required=True)    
+    languages_known = serializers.SlugRelatedField(many=True,slug_field='name',queryset=Language.objects.all(),required=False)
 
     class Meta:
         model = Executive
@@ -55,16 +62,37 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
-            'on_call', 'password'  
+            'on_call', 'password', 'languages_known'
         ]
         read_only_fields = ['id', 'created_at', 'last_login', 'stats']
 
     def create(self, validated_data):
+        languages = validated_data.pop("languages_known", [])
         password = validated_data.pop("password")
         executive = Executive(**validated_data)
-        executive.set_password(password) 
+        executive.set_password(password)
         executive.save()
+
+        if languages:
+            executive.languages_known.set(languages)
+
         return executive
+
+    def update(self, instance, validated_data):
+        languages = validated_data.pop("languages_known", None)
+        password = validated_data.pop("password", None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
+        instance.save()
+
+        if languages is not None:
+            instance.languages_known.set(languages)
+
+        return instance
 
 
 

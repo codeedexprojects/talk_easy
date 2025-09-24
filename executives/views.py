@@ -6,19 +6,32 @@ from .models import Executive, ExecutiveStats
 from .serializers import *
 import re
 from django.contrib.auth import authenticate
-from rest_framework.permissions import AllowAny
 import random
 from executives.utils import send_otp
 from rest_framework.views import APIView
 from executives.models import *
 from django.utils import timezone
-from rest_framework_simplejwt.tokens import RefreshToken, TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAdminUser
 # For admin-specific views
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.parsers import MultiPartParser, FormParser
+from executives.authentication import ExecutiveTokenAuthentication
 
 
+
+class LanguageListCreateView(generics.ListCreateAPIView):
+    queryset = Language.objects.all()
+    serializer_class = LanguageSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+
+class LanguageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Language.objects.all()
+    serializer_class = LanguageSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
 
 
 def generate_executive_tokens(executive):
@@ -91,10 +104,21 @@ class ExecutiveLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        otp = str(random.randint(100000, 999999))
+        if executive.is_suspended or executive.is_banned:
+            return Response(
+                {"message": "Your account is suspended or banned. Contact admin."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
+        if not executive.is_verified:
+            return Response(
+                {"message": "Your account is not verified by admin yet."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        otp = str(random.randint(100000, 999999))
         executive.otp = otp
-        executive.is_verified = False
+        executive.is_verified = True 
         executive.save(update_fields=["otp", "is_verified"])
 
         if not send_otp(mobile_number, otp):
@@ -105,6 +129,8 @@ class ExecutiveLoginView(APIView):
             "status": True
         }, status=status.HTTP_200_OK)
 
+
+
 from rest_framework_simplejwt.tokens import RefreshToken
 
 class ExecutiveVerifyOTPView(APIView):
@@ -114,46 +140,32 @@ class ExecutiveVerifyOTPView(APIView):
         mobile_number = request.data.get("mobile_number")
         otp = request.data.get("otp")
 
-        if not mobile_number or not otp:
-            return Response(
-                {"message": "Mobile number and OTP are required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
-            executive = Executive.objects.get(mobile_number=mobile_number, otp=otp)
+            executive = Executive.objects.get(mobile_number=mobile_number)
         except Executive.DoesNotExist:
+            return Response({"message": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not executive.otp or str(executive.otp) != str(otp):
             return Response({"message": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
         executive.otp = None
+        executive.is_verified = True
         executive.online = True
         executive.is_logged_out = False
-        executive.save(update_fields=["otp", "online", "is_logged_out"])
+        executive.save(update_fields=["otp", "is_verified", "online", "is_logged_out"])
 
-        # Use linked Admin user for JWT tokens
-        admin_user = executive.manager_executive
-        if not admin_user:
-            return Response(
-                {"message": "Associated admin user not found."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        refresh = RefreshToken.for_user(admin_user)
-        access_token = str(refresh.access_token)
+        token_obj = ExecutiveToken.generate(executive)
 
         return Response({
-            "message": "OTP verified successfully.",
-            "id": executive.id,
-            "executive_id": executive.executive_id,
-            "name": executive.name,
-            "status": True,
-            "online": executive.online,
-            "auto_logout_minutes": getattr(executive, "AUTO_LOGOUT_MINUTES", None),
-            "access_token": access_token,
-            "refresh_token": str(refresh)
+            "message": "OTP verified successfully",
+            "executive_id":executive.executive_id,
+            "id":executive.id,
+            "name":executive.name,
+            "access_token": token_obj.access_token,
+            "refresh_token": token_obj.refresh_token,
+            "expires_at": token_obj.expires_at
         }, status=status.HTTP_200_OK)
-
-
+    
 
 from rest_framework.permissions import IsAuthenticated
 
@@ -185,11 +197,13 @@ from accounts.pagination import CustomExecutivePagination
 from rest_framework.generics import ListAPIView
 
 class ExecutiveListAPIView(ListAPIView):
-    queryset = Executive.objects.all()
     serializer_class = ExecutiveSerializer
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
     pagination_class = CustomExecutivePagination
+
+    def get_queryset(self):
+        return Executive.objects.filter(is_verified=True).order_by("-id")
 
 
 class ExecutiveDetailAPIView(APIView):
@@ -251,14 +265,13 @@ class AdminUpdateExecutiveAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 from users.models import UserProfile
+
 class BlockUserAPIView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, executive_id, user_id):
-        try:
-            executive = Executive.objects.get(id=executive_id)
-        except Executive.DoesNotExist:
-            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+    def post(self, request, user_id):
+        executive = request.user 
 
         try:
             user = UserProfile.objects.get(id=user_id)
@@ -271,26 +284,29 @@ class BlockUserAPIView(APIView):
             defaults={'is_blocked': True, 'reason': 'Blocked by executive'}
         )
         return Response(
-            {"detail": f"User {user_id} blocked by Executive {executive_id} successfully.","status":True},
+            {"detail": f"User {user_id} blocked by Executive {executive.executive_id} successfully.", "status": True},
             status=status.HTTP_200_OK
         )
 
 
 class UnblockUserAPIView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, executive_id, user_id):
+    def post(self, request, user_id):
+        executive = request.user 
+
         try:
-            blocked_entry = BlockedusersByExecutive.objects.get(user_id=user_id, executive_id=executive_id)
+            blocked_entry = BlockedusersByExecutive.objects.get(user_id=user_id, executive=executive)
             blocked_entry.is_blocked = False
             blocked_entry.save(update_fields=['is_blocked'])
             return Response(
-                {"detail": f"User {user_id} unblocked by Executive {executive_id} successfully.","status":True},
+                {"detail": f"User {user_id} unblocked by Executive {executive.executive_id} successfully.", "status": True},
                 status=status.HTTP_200_OK
             )
         except BlockedusersByExecutive.DoesNotExist:
             return Response(
-                {"detail": "This user is not blocked by this executive.","status":False},
+                {"detail": "This user is not blocked by you.", "status": False},
                 status=status.HTTP_404_NOT_FOUND
             )
         
@@ -314,22 +330,29 @@ class UpdateExecutiveStatusAPIView(APIView):
             serializer.save()
             return Response({"detail": "Executive status updated successfully.", "status": True}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-class UpdateExecutiveOnlineStatusAPIView(APIView):
-    permission_classes = [IsAuthenticated]  
 
-    def patch(self, request, id):
-        try:
-            executive = Executive.objects.get(id=id)
-        except Executive.DoesNotExist:
-            return Response({"detail": "Executive not found.", "status": False}, status=status.HTTP_404_NOT_FOUND)
+class UpdateExecutiveOnlineStatusAPIView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication] 
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        executive = request.user
 
         serializer = ExecutiveOnlineStatusSerializer(executive, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response({"detail": "Status updated successfully.", "status": True}, status=status.HTTP_200_OK)
+            return Response({
+                "detail": "Status updated successfully.",
+                "status": True,
+                "is_online": executive.is_online,
+                "is_offline": executive.is_offline,
+                "executive_id":executive.executive_id,
+                "id": executive.id
+
+            }, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     
 
 

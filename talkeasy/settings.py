@@ -206,6 +206,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'users.authentication.UserProfileJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+
     ),
 }
 
