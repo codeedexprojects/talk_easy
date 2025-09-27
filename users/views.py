@@ -63,8 +63,12 @@ class RegisterOrLoginView(APIView):
                 try:
                     referrer = ReferralCode.objects.get(code=referral_code).user
                     ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                    referrer.coin_balance += 1000
-                    referrer.save(update_fields=['coin_balance'])
+                    
+                    # ✅ Update referrer coins in UserStats
+                    referrer_stats = getattr(referrer, "stats", None)
+                    if referrer_stats:
+                        referrer_stats.coin_balance += 1000
+                        referrer_stats.save(update_fields=['coin_balance'])
                 except ReferralCode.DoesNotExist:
                     return Response({'message': 'Invalid referral code.', 'status': False},
                                     status=status.HTTP_400_BAD_REQUEST)
@@ -96,16 +100,22 @@ class RegisterOrLoginView(APIView):
             user = UserProfile.objects.create(
                 mobile_number=mobile_number,
                 otp=otp,
-                coin_balance=initial_coin_balance
             )
 
-            # Create referral only for new users who are not deleted
+            user_stats, created = UserStats.objects.get_or_create(user=user)
+            if initial_coin_balance > 0:
+                user_stats.coin_balance = initial_coin_balance
+                user_stats.save(update_fields=['coin_balance'])
+
             if referral_code and not is_deleted_user:
                 try:
                     referrer = ReferralCode.objects.get(code=referral_code).user
                     ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                    referrer.coin_balance += 1000
-                    referrer.save(update_fields=['coin_balance'])
+                    
+                    referrer_stats = getattr(referrer, "stats", None)
+                    if referrer_stats:
+                        referrer_stats.coin_balance += 1000
+                        referrer_stats.save(update_fields=['coin_balance'])
                 except ReferralCode.DoesNotExist:
                     return Response({'message': 'Invalid referral code.', 'status': False},
                                     status=status.HTTP_400_BAD_REQUEST)
@@ -117,9 +127,10 @@ class RegisterOrLoginView(APIView):
                 'user_id': user.id,
                 'mobile_number': user.mobile_number,
                 'otp': user.otp,
-                'coin_balance': user.coin_balance,
+                'coin_balance': user_stats.coin_balance, 
                 'user_main_id': user.user_id,
             }, status=status.HTTP_200_OK)
+
 
 
 from rest_framework_simplejwt.tokens import RefreshToken , TokenError
@@ -506,10 +517,11 @@ class CarouselImageDetailView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
         except CarouselImage.DoesNotExist:
             return Response({'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-class ReferralHistoryListView(APIView):
 
-    permission_classes = [] 
+from rest_framework.permissions import IsAdminUser    
+class ReferralHistoryListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
 
     def get(self, request, *args, **kwargs):
         histories = ReferralHistory.objects.select_related('referrer', 'referred_user').all().order_by('-referred_at')

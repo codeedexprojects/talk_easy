@@ -68,18 +68,36 @@ class ExecutiveStats(models.Model):
     executive = models.OneToOneField(
         Executive, on_delete=models.CASCADE, related_name="stats"
     )
-    coins_per_second = models.FloatField(default=3)
-    set_coin = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+
+    #Coin related tracking
+    coins_per_second = models.FloatField(default=3) #from user 
+    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=0.0) 
+    vault_Balance = models.IntegerField(default=0)
+
+    # Call tracking
     total_on_duty_seconds = models.PositiveIntegerField(default=0)
     total_talk_seconds_today = models.PositiveIntegerField(default=0)
     total_picked_calls = models.PositiveIntegerField(default=0)
     total_missed_calls = models.PositiveIntegerField(default=0)
-    coin_balance = models.IntegerField(default=0)
+
+    total_earnings = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0.00,
+        help_text="Total lifetime earnings of executive"
+    )
+    earnings_today = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0.00,
+        help_text="Earnings for today"
+    )
+    pending_payout = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0.00,
+        help_text="Balance to be paid to executive"
+    )
 
     last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Stats for {self.executive.name}"
+
 
 
 class ExecutiveToken(models.Model):

@@ -50,7 +50,6 @@ class UserProfile(models.Model):
     otp = models.CharField(max_length=6, blank=True, null=True)
     is_verified = models.BooleanField(default=False)
     gender = models.CharField(max_length=8, choices=GENDER_CHOICES, blank=True, null=True)
-    coin_balance = models.PositiveIntegerField(default=0)
     user_id = models.CharField(max_length=10, unique=True, editable=False)
     last_login = models.DateTimeField(null=True, blank=True)
     is_banned = models.BooleanField(default=False)
@@ -65,7 +64,7 @@ class UserProfile(models.Model):
     PREFIX = "TUR"  
 
     class Meta:
-        db_table = 'userprofile'  # Explicitly set table name
+        db_table = 'userprofile'  
 
     def __str__(self):
         return self.name or self.mobile_number or "Unknown User"

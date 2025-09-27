@@ -706,3 +706,12 @@ class AdminProfilePictureStatsView(APIView):
             "recent_submissions": recent,
             "approval_rate": round((approved / total * 100) if total > 0 else 0, 2)
         }, status=status.HTTP_200_OK)
+    
+class ExecutiveStatusAPIView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        executive = request.user 
+        serializer = ExecutiveDetailSerializer(executive)
+        return Response(serializer.data, status=status.HTTP_200_OK)

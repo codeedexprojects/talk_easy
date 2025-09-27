@@ -38,4 +38,6 @@ urlpatterns = [
     path('admin/profile-pictures/bulk-action/',AdminProfilePictureBulkActionView.as_view(),name='admin-profile-pictures-bulk-action'),   
     # Get statistics
     path('admin/profile-pictures/stats/',AdminProfilePictureStatsView.as_view(),name='admin-profile-pictures-stats'),
+    path("executives/status/", ExecutiveStatusAPIView.as_view(), name="executive-status"),
+
 ]

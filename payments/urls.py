@@ -11,4 +11,8 @@ urlpatterns = [
     path('plans/', RechargePlanListCreateAPIView.as_view(), name='plan-list-create'),
     path('plans/<int:pk>/', RechargePlanDetailAPIView.as_view(), name='plan-detail'),
     path('plans/<int:pk>/delete/', RechargePlanDeleteAPIView.as_view(), name='plan-delete'),
+
+    path("recharge-plan-list/", RechargePlansView.as_view(), name="recharge-plans"),
+    path("user-recharge/", UserRechargeView.as_view(), name="user-recharge"),
+
 ]

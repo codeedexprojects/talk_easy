@@ -68,3 +68,45 @@ class RechargePlanDeleteAPIView(APIView):
             return Response({"message": "Plan deleted successfully"}, status=status.HTTP_200_OK)
         except RechargePlan.DoesNotExist:
             return Response({"error": "Plan not found"}, status=status.HTTP_404_NOT_FOUND)
+
+from rest_framework import status, permissions
+from payments.models import UserRecharge
+
+class RechargePlansView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        plans = RechargePlan.objects.filter(is_active=True, is_deleted=False)
+        serializer = RechargePlanSerializer(plans, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class UserRechargeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        plan_id = request.data.get("plan_id")
+
+        try:
+            plan = RechargePlan.objects.get(id=plan_id, is_active=True, is_deleted=False)
+        except RechargePlan.DoesNotExist:
+            return Response({"error": "Invalid recharge plan"}, status=status.HTTP_400_BAD_REQUEST)
+
+        coins_to_add = plan.get_adjusted_coin_package()
+        amount_to_pay = plan.calculate_final_price()
+
+        recharge = UserRecharge.objects.create(
+            user=user,
+            plan=plan,
+            coins_added=coins_to_add,
+            amount_paid=amount_to_pay,
+            is_successful=True  
+        )
+
+        return Response({
+            "message": "Recharge successful",
+            "coins_added": coins_to_add,
+            "amount_paid": float(amount_to_pay),
+            "current_coin_balance": user.stats.coin_balance
+        }, status=status.HTTP_200_OK)

@@ -44,9 +44,10 @@ class ExecutiveOTPVerifySerializer(serializers.Serializer):
 class ExecutiveStatsSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExecutiveStats
-        fields = [
-            'coins_per_second', 'set_coin', 'total_on_duty_seconds', 
-            'total_talk_seconds_today', 'total_picked_calls', 'total_missed_calls', 'coin_balance'
+        fields = ['executive',
+            'coins_per_second', 'amount_per_min', 'total_on_duty_seconds', 
+            'total_talk_seconds_today', 'total_picked_calls', 'total_missed_calls', 'vault_Balance','total_earnings'
+            ,'earnings_today','pending_payout','last_updated'
         ]
 
 class ExecutiveSerializer(serializers.ModelSerializer):
@@ -213,4 +214,19 @@ class AdminProfilePictureListSerializer(serializers.ModelSerializer):
         from django.utils import timezone
         delta = timezone.now() - obj.created_at
         return delta.days
-    
+
+
+class ExecutiveDetailSerializer(serializers.ModelSerializer):
+    stats = ExecutiveStatsSerializer(read_only=True)
+
+    class Meta:
+        model = Executive
+        fields = [
+            "id",
+            "name",
+            "is_online",
+            "on_call",
+            "is_banned",
+            "is_suspended",
+            "stats",
+        ]
