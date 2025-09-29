@@ -1,7 +1,7 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, Group, Permission
 from django.db import models
 from django.utils.timezone import now
-from .managers import AdminManager  # You'll need a custom manager
+from .managers import AdminManager  
 
 class Admin(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)

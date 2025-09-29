@@ -6,18 +6,17 @@ import string, random
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 import uuid
-
+from executives.models import Executive
 
 class UserProfileOutstandingToken(models.Model):
-    # If you have an Admin model, use it; otherwise keep UserProfile
     user = models.ForeignKey('UserProfile', on_delete=models.CASCADE, related_name='outstanding_tokens')
-    jti = models.CharField(max_length=255, unique=True)  # JWT ID
-    token = models.TextField()  # the actual token string
+    jti = models.CharField(max_length=255, unique=True) 
+    token = models.TextField() 
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
 
     class Meta:
-        db_table = 'userprofile_outstanding_token'  # Explicitly set table name
+        db_table = 'userprofile_outstanding_token' 
 
     def __str__(self):
         return f'Token for {self.user} - {self.jti}'
@@ -51,7 +50,6 @@ class UserProfile(models.Model):
     otp = models.CharField(max_length=6, blank=True, null=True)
     is_verified = models.BooleanField(default=False)
     gender = models.CharField(max_length=8, choices=GENDER_CHOICES, blank=True, null=True)
-    coin_balance = models.PositiveIntegerField(default=0)
     user_id = models.CharField(max_length=10, unique=True, editable=False)
     last_login = models.DateTimeField(null=True, blank=True)
     is_banned = models.BooleanField(default=False)
@@ -66,7 +64,7 @@ class UserProfile(models.Model):
     PREFIX = "TUR"  
 
     class Meta:
-        db_table = 'userprofile'  # Explicitly set table name
+        db_table = 'userprofile'  
 
     def __str__(self):
         return self.name or self.mobile_number or "Unknown User"
