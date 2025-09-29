@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'executives',
     'channels',
     'calls',
-    'payments'
+    'payments',
+    'rest_framework'
 ]
 
 MIDDLEWARE = [
