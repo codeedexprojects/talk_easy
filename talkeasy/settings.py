@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'executives',
     'channels',
     'calls',
-    'payments'
+    'payments',
+    'rest_framework'
 ]
 
 MIDDLEWARE = [
@@ -206,6 +207,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'users.authentication.UserProfileJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+
     ),
 }
 
@@ -231,3 +233,10 @@ AGORA_APP_ID = '9019fa33fc6d4654848121f4b88b346c'
 AGORA_APP_CERTIFICATE = 'e2f0a6a085d34973ad08c7cfa785796d'
 AGORA_TOKEN_TTL_SECONDS = 3600  # 1 hour
 COINS_PER_SECOND = 3
+
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}

@@ -5,7 +5,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = [
-            'id', 'user_id', 'name', 'email', 'mobile_number', 'gender', 'coin_balance', 
+            'id', 'user_id', 'name', 'email', 'mobile_number', 'gender', 
             'is_verified', 'is_banned', 'is_suspended', 'created_at','is_active'
         ]
 
@@ -100,7 +100,7 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'id', 'user_id', 'name', 'email', 'mobile_number', 'gender',
-            'coin_balance', 'is_verified', 'is_banned', 'is_suspended',
+             'is_verified', 'is_banned', 'is_suspended',
             'created_at', 'is_active', 'stats'
         ]
 

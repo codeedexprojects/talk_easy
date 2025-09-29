@@ -63,8 +63,12 @@ class RegisterOrLoginView(APIView):
                 try:
                     referrer = ReferralCode.objects.get(code=referral_code).user
                     ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                    referrer.coin_balance += 1000
-                    referrer.save(update_fields=['coin_balance'])
+                    
+                    # ✅ Update referrer coins in UserStats
+                    referrer_stats = getattr(referrer, "stats", None)
+                    if referrer_stats:
+                        referrer_stats.coin_balance += 1000
+                        referrer_stats.save(update_fields=['coin_balance'])
                 except ReferralCode.DoesNotExist:
                     return Response({'message': 'Invalid referral code.', 'status': False},
                                     status=status.HTTP_400_BAD_REQUEST)
@@ -96,16 +100,22 @@ class RegisterOrLoginView(APIView):
             user = UserProfile.objects.create(
                 mobile_number=mobile_number,
                 otp=otp,
-                coin_balance=initial_coin_balance
             )
 
-            # Create referral only for new users who are not deleted
+            user_stats, created = UserStats.objects.get_or_create(user=user)
+            if initial_coin_balance > 0:
+                user_stats.coin_balance = initial_coin_balance
+                user_stats.save(update_fields=['coin_balance'])
+
             if referral_code and not is_deleted_user:
                 try:
                     referrer = ReferralCode.objects.get(code=referral_code).user
                     ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                    referrer.coin_balance += 1000
-                    referrer.save(update_fields=['coin_balance'])
+                    
+                    referrer_stats = getattr(referrer, "stats", None)
+                    if referrer_stats:
+                        referrer_stats.coin_balance += 1000
+                        referrer_stats.save(update_fields=['coin_balance'])
                 except ReferralCode.DoesNotExist:
                     return Response({'message': 'Invalid referral code.', 'status': False},
                                     status=status.HTTP_400_BAD_REQUEST)
@@ -117,9 +127,10 @@ class RegisterOrLoginView(APIView):
                 'user_id': user.id,
                 'mobile_number': user.mobile_number,
                 'otp': user.otp,
-                'coin_balance': user.coin_balance,
+                'coin_balance': user_stats.coin_balance, 
                 'user_main_id': user.user_id,
             }, status=status.HTTP_200_OK)
+
 
 
 from rest_framework_simplejwt.tokens import RefreshToken , TokenError
@@ -278,20 +289,25 @@ from executives.models import *
 from executives.serializers import *
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from accounts.pagination import CustomUserPagination
 
 class ExecutiveListAPIView(APIView):
-    permission_classes = [IsAuthenticated]  
+    permission_classes = [IsAuthenticated]
+    pagination_class = CustomUserPagination
 
     def get(self, request):
         executives = Executive.objects.all().order_by('-created_at')
-        serializer = ExecutiveSerializer(executives, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(executives, request, view=self)
+        serializer = ExecutiveSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
         serializer = ExecutiveSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            # Notify WebSocket group
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
                 "executives_group",
@@ -501,10 +517,11 @@ class CarouselImageDetailView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
         except CarouselImage.DoesNotExist:
             return Response({'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-class ReferralHistoryListView(APIView):
 
-    permission_classes = [] 
+from rest_framework.permissions import IsAdminUser    
+class ReferralHistoryListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
 
     def get(self, request, *args, **kwargs):
         histories = ReferralHistory.objects.select_related('referrer', 'referred_user').all().order_by('-referred_at')
@@ -527,3 +544,253 @@ class UserDetailView(RetrieveAPIView):
     def get_object(self):
         user_id = self.kwargs.get("user_id")
         return get_object_or_404(UserProfile, id=user_id)
+    
+from rest_framework.permissions import IsAdminUser
+from django.db.models import Q
+
+class UserSoftDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, user_id=None):
+        try:
+            if user_id:
+                if not request.user.is_staff:
+                    return Response(
+                        {"error": "Permission denied. Admin access required."}, 
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                user = get_object_or_404(UserProfile, id=user_id)
+            else:
+                user = request.user
+            
+            if user.is_deleted:
+                return Response(
+                    {"error": "User account is already deleted"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )            
+            user.is_deleted = True
+            user.is_active = False  
+            user.is_online = False  
+            user.is_loginned = False  
+            user.save()
+            
+            deletion_log = {
+                "user_id": user.user_id,
+                "deleted_at": timezone.now().isoformat(),
+                "deleted_by": request.user.user_id if hasattr(request.user, 'user_id') else str(request.user.id)
+            }
+            
+            return Response({
+                "message": "User account has been successfully deleted",
+                "user_id": user.user_id,
+                "deleted_at": timezone.now().isoformat()
+            }, status=status.HTTP_200_OK)
+            
+        except UserProfile.DoesNotExist:
+            return Response(
+                {"error": "User not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"An error occurred: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class UserAccountRestoreView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+    
+    def post(self, request, user_id):
+        try:
+            user = get_object_or_404(UserProfile, id=user_id)
+            
+            if not user.is_deleted:
+                return Response(
+                    {"error": "User account is not deleted"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            user.is_deleted = False
+            user.is_active = True 
+            user.save()
+            
+            serializer = UserProfileSerializer(user)
+            
+            return Response({
+                "message": "User account has been successfully restored",
+                "user": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except UserProfile.DoesNotExist:
+            return Response(
+                {"error": "User not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class UserBulkSoftDeleteView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+    
+    def delete(self, request):
+        user_ids = request.data.get('user_ids', [])
+        reason = request.data.get('reason', '')
+        
+        if not user_ids or not isinstance(user_ids, list):
+            return Response(
+                {"error": "user_ids must be a non-empty list"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            users = UserProfile.objects.filter(
+                id__in=user_ids, 
+                is_deleted=False
+            )
+            
+            if not users.exists():
+                return Response(
+                    {"error": "No active users found with provided IDs"}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            updated_count = 0
+            results = []
+            
+            for user in users:
+                user.is_deleted = True
+                user.is_active = False
+                user.is_online = False
+                user.is_loginned = False
+                user.save()
+                
+                updated_count += 1
+                results.append({
+                    "id": user.id,
+                    "user_id": user.user_id,
+                    "name": user.name,
+                    "email": user.email,
+                    "status": "deleted"
+                })
+            
+            return Response({
+                "message": f"Bulk soft delete completed",
+                "deleted_count": updated_count,
+                "results": results,
+                "reason": reason
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"error": f"An error occurred during bulk delete: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeletedUsersListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+    
+    def get(self, request):
+        queryset = UserProfile.objects.filter(is_deleted=True)
+        
+        search = request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(user_id__icontains=search) |
+                Q(mobile_number__icontains=search)
+            )
+        
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+        
+        if date_from:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(created_at__date__lte=date_to)
+        
+        queryset = queryset.order_by('-created_at')
+        
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        total_count = queryset.count()
+        paginated_queryset = queryset[start:end]
+        
+        serializer = UserProfileSerializer(paginated_queryset, many=True)
+        
+        return Response({
+            "count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size,
+            "results": serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+class UserDeletionStatsView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+    
+    def get(self, request):
+        from datetime import timedelta
+        
+        total_users = UserProfile.objects.count()
+        active_users = UserProfile.objects.filter(is_deleted=False, is_active=True).count()
+        deleted_users = UserProfile.objects.filter(is_deleted=True).count()
+        
+        week_ago = timezone.now() - timedelta(days=7)
+        recent_deletions = UserProfile.objects.filter(
+            is_deleted=True,
+            created_at__gte=week_ago  
+        ).count()
+        
+        month_ago = timezone.now() - timedelta(days=30)
+        monthly_deletions = UserProfile.objects.filter(
+            is_deleted=True,
+            created_at__gte=month_ago
+        ).count()
+        
+        return Response({
+            "total_users": total_users,
+            "active_users": active_users,
+            "deleted_users": deleted_users,
+            "recent_deletions": recent_deletions,
+            "monthly_deletions": monthly_deletions,
+            "deletion_rate": round((deleted_users / total_users * 100) if total_users > 0 else 0, 2)
+        }, status=status.HTTP_200_OK)
+
+
+class UserAccountStatusView(APIView):
+    permission_classes = [IsAuthenticated]    
+    def get(self, request, user_id=None):
+        try:
+            if user_id and request.user.is_staff:
+                user = get_object_or_404(UserProfile, id=user_id)
+            else:
+                user = request.user
+            
+            return Response({
+                "user_id": user.user_id,
+                "name": user.name,
+                "email": user.email,
+                "is_active": user.is_active,
+                "is_deleted": user.is_deleted,
+                "is_suspended": user.is_suspended,
+                "is_banned": user.is_banned,
+                "is_online": user.is_online,
+                "last_login": user.last_login
+            }, status=status.HTTP_200_OK)
+            
+        except UserProfile.DoesNotExist:
+            return Response(
+                {"error": "User not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )

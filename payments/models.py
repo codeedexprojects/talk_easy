@@ -38,3 +38,23 @@ class RechargePlan(models.Model):
 
     def __str__(self):
         return self.plan_name
+
+from users.models import UserProfile
+
+class UserRecharge(models.Model):
+    user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name="recharges")
+    plan = models.ForeignKey(RechargePlan, on_delete=models.CASCADE)
+    coins_added = models.PositiveIntegerField()
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_successful = models.BooleanField(default=True) 
+
+    def save(self, *args, **kwargs):
+        if self.is_successful:
+            if hasattr(self.user, "stats"):
+                self.user.stats.coin_balance += self.coins_added
+                self.user.stats.save(update_fields=["coin_balance"])
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.user} - {self.plan.plan_name} ({self.coins_added} coins)"

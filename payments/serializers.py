@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import RechargePlanCatogary, RechargePlan
+from .models import RechargePlanCatogary, RechargePlan , UserRecharge
 from decimal import Decimal
 
 class RechargePlanCategorySerializer(serializers.ModelSerializer):
@@ -13,11 +13,12 @@ class RechargePlanSerializer(serializers.ModelSerializer):
     final_price = serializers.SerializerMethodField()
     adjusted_coin_package = serializers.SerializerMethodField()
     total_talktime_minutes = serializers.SerializerMethodField()  
+    category_name = serializers.SerializerMethodField()
 
     class Meta:
         model = RechargePlan
         fields = '__all__'
-        read_only_fields = ['is_deleted', 'total_talktime']  
+        read_only_fields = ['is_deleted', 'total_talktime','category_name']  
 
     def get_final_price(self, obj):
         return obj.calculate_final_price()
@@ -40,5 +41,12 @@ class RechargePlanSerializer(serializers.ModelSerializer):
         instance.total_talktime = instance.calculate_talk_time_minutes()  
         instance.save()
         return instance
-
-
+    
+    def get_category_name(self, obj):
+        return obj.category_id.name if obj.category_id else None
+    
+class UserRechargeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserRecharge
+        fields = ["id", "user", "plan", "coins_added", "amount_paid", "created_at", "is_successful"]
+        read_only_fields = ["coins_added", "amount_paid", "created_at"]

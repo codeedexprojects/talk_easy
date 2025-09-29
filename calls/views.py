@@ -9,6 +9,13 @@ from django.shortcuts import get_object_or_404
 from .models import AgoraCallHistory
 from calls.serializers import *
 from calls.utils import build_agora_token
+from executives.authentication import ExecutiveTokenAuthentication
+from rest_framework.permissions import IsAuthenticated
+from executives.models import ExecutiveStats
+from .pagination import CustomCallPagination
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.permissions import IsAdminUser
+
 
 class IsAuthenticatedOrService(permissions.BasePermission):
  
@@ -24,6 +31,8 @@ import time
 from executives.models import Executive
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from users.models import UserStats
+
 
 class CallInitiateView(APIView):
     def post(self, request):
@@ -36,19 +45,39 @@ class CallInitiateView(APIView):
             # Get executive
             executive = get_object_or_404(Executive, id=executive_id)
 
-            # Validations
+            # Validate executive availability
             validation_error = self.validate_executive(executive)
             if validation_error:
                 return validation_error
+
+            user = request.user
+            try:
+                user_stats = user.stats
+            except UserStats.DoesNotExist:
+                return Response(
+                    {"detail": "User stats not found"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if user_stats.coin_balance < 180:
+                return Response(
+                    {"detail": "At least 180 coins required to start a call"},
+                    status=status.HTTP_402_PAYMENT_REQUIRED
+                )
 
             # Mark executive as on call
             executive.on_call = True
             executive.save(update_fields=["on_call"])
 
-            # Generate tokens for both caller and executive
+            # Generate tokens for caller and executive
             caller_token = generate_agora_token(channel_name, caller_uid)
-            callee_uid = caller_uid + 1000  # Simple UID generation
+            callee_uid = caller_uid + 1000
             executive_token = generate_agora_token(channel_name, callee_uid)
+
+            # Get executive rates safely
+            exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
+            rate_per_minute = exec_stats.amount_per_min
+            coins_per_second = exec_stats.coins_per_second
 
             # Create call history
             call_history = AgoraCallHistory.objects.create(
@@ -60,15 +89,15 @@ class CallInitiateView(APIView):
                 executive_token=executive_token,
                 status="pending",
                 is_active=True,
-                user=request.user
+                user=user,
+                coins_per_second=coins_per_second,
+                amount_per_min=rate_per_minute
             )
 
             # Send WebSocket notification
-            self.send_incoming_call_notification(
-                executive_id, call_history, request.user
-            )
+            self.send_incoming_call_notification(executive_id, call_history, user)
 
-            # Schedule missed call check (but don't use threading)
+            # Schedule missed call check
             self.schedule_missed_call_check(call_history.id)
 
             return Response({
@@ -77,29 +106,27 @@ class CallInitiateView(APIView):
                 "channel_name": channel_name,
                 "caller_uid": caller_uid,
                 "token": caller_token,
-                "status": "pending"
+                "callee_uid": callee_uid,
+                "executive_token": executive_token,
+                "status": "pending",
+                "coins_per_second": coins_per_second,
+                "amount_per_min": str(rate_per_minute)
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def validate_executive(self, executive):
-        """Validate executive availability"""
         if not executive.is_online:
-            return Response({"detail": "Executive is offline"}, 
-                          status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
         if executive.is_banned:
-            return Response({"detail": "Executive is banned"}, 
-                          status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
         if executive.is_suspended:
-            return Response({"detail": "Executive is suspended"}, 
-                          status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
         if executive.on_call:
-            return Response({"detail": "Executive is on another call"}, 
-                          status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
         return None
 
     def send_incoming_call_notification(self, executive_id, call_history, caller):
-        """Send incoming call notification via WebSocket"""
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
@@ -109,19 +136,19 @@ class CallInitiateView(APIView):
                         "type": "incoming_call",
                         "call_id": call_history.id,
                         "channel_name": call_history.channel_name,
-                        "caller_name": getattr(caller, "first_name", "Unknown"),
+                        "caller_name": getattr(caller, "name", "Unknown"),
                         "caller_uid": call_history.uid,
                         "executive_token": call_history.executive_token,
                         "callee_uid": call_history.callee_uid,
-                        "timestamp": call_history.start_time.isoformat()
+                        "timestamp": call_history.start_time.isoformat(),
+                        "coins_per_second": call_history.coins_per_second,
+                        "amount_per_min": str(call_history.amount_per_min),
                     }
                 )
         except Exception as e:
             print(f"WebSocket notification failed: {e}")
 
     def schedule_missed_call_check(self, call_id):
-        """Schedule missed call check using Celery or similar"""
-        # Use Celery task instead of threading
         from .tasks import mark_call_as_missed
         mark_call_as_missed.apply_async(args=[call_id], countdown=30)
 
@@ -152,7 +179,7 @@ class MarkJoinedView(APIView):
 
 
 class EndCallView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
 
     def post(self, request, call_id):
         try:
@@ -160,30 +187,46 @@ class EndCallView(APIView):
         except AgoraCallHistory.DoesNotExist:
             return Response({"error": "Call not found or already ended"}, status=404)
 
-        call.end_call(ender="client")
-        
-        # Send WebSocket notifications with error handling
+        #  Check if user has coins left before ending
+        if call.user.coin_balance <= 0:
+            call.end_call(ender="system")
+            reason = "Insufficient balance, call ended automatically"
+        else:
+            call.end_call(ender="client")
+            reason = "Call ended by user"
+
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
-                # Notify both parties
                 caller_group = f"user_client_{call.user_id}"
                 executive_group = f"user_executive_{call.executive_id}"
-                
                 for group_name in [caller_group, executive_group]:
                     async_to_sync(channel_layer.group_send)(
                         group_name,
                         {
                             'type': 'call_ended',
-                            'call_id': call_id,
-                            'reason': 'Call ended by user',
-                            'ended_by': 'client'
+                            'call_id': call.id,
+                            'reason': reason,
+                            'ended_by': call.ended_by,
+                            'coins_deducted': call.coins_deducted,
+                            'executive_earnings': float(call.executive_earnings),
+                            'duration_seconds': call.duration_seconds
                         }
                     )
         except Exception as e:
             print(f"WebSocket end call notification failed: {e}")
 
-        return Response({"ok": True, "message": "Call ended"})
+        return Response({
+            "ok": True,
+            "message": reason,
+            "coins_deducted": call.coins_deducted,
+            "executive_earnings": float(call.executive_earnings),
+            "duration_seconds": call.duration_seconds
+        })
+
+
+
+
 
 
 class AgoraWebhookView(APIView):
@@ -219,11 +262,16 @@ class AgoraWebhookView(APIView):
         return Response({"ok": True})
 
 class CallJoinView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request, call_id):
         try:
-            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+            call = AgoraCallHistory.objects.get(id=call_id)
+            if call.status not in ["pending", "active"]:
+                return Response({"error": "Call not active"}, status=status.HTTP_400_BAD_REQUEST)
         except AgoraCallHistory.DoesNotExist:
-            return Response({"error": "Call not found or inactive"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Call not found"}, status=status.HTTP_404_NOT_FOUND)
 
         callee_uid = request.data.get("callee_uid")
         if not callee_uid:
@@ -237,22 +285,52 @@ class CallJoinView(APIView):
         call.executive_token = executive_token
         call.status = "joined"
         call.joined_at = timezone.now()
+        call.is_active = True
         call.save()
 
         return Response({
             "id": call.id,
             "channel_name": call.channel_name,
             "status": call.status,
-            "uid": call.uid,  # caller
-            "callee_uid": call.callee_uid,  
-            "token": call.token,  # caller token
-            "executive_token": call.executive_token,  # executive token
+            "caller_uid": call.uid,
+            "callee_uid": call.callee_uid,
+            "token": call.token,
+            "executive_token": call.executive_token,
             "joined_at": call.joined_at,
         }, status=status.HTTP_200_OK)
 
 
-class RejectCallView(APIView):
+
+class RejectCallViewUser(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+        except AgoraCallHistory.DoesNotExist:
+            return Response({"error": "Call not found or already inactive"}, status=404)
+
+        call.status = "missed"
+        call.is_active = False
+        call.end_time = timezone.now()
+        call.ended_by = "user"
+        call.save(update_fields=["status", "is_active", "end_time", "ended_by"])
+
+        if call.executive:
+            call.executive.on_call = False
+            call.executive.save(update_fields=["on_call"])
+
+        return Response({
+            "ok": True,
+            "message": "Call rejected by user",
+            "call_id": call.id,
+            "status": call.status
+        })
+
+
+class RejectCallViewExecutive(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, call_id):
         try:
@@ -262,21 +340,33 @@ class RejectCallView(APIView):
 
         call.status = "rejected"
         call.is_active = False
-        call.save()
+        call.end_time = timezone.now()
+        call.ended_by = "executive"
+        call.save(update_fields=["status", "is_active", "end_time", "ended_by"])
 
-        return Response({"ok": True, "message": "Call rejected"})
+        if call.executive:
+            call.executive.on_call = False
+            call.executive.save(update_fields=["on_call"])
 
-class EndCallView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+        return Response({
+            "ok": True,
+            "message": "Call rejected by executive",
+            "call_id": call.id,
+            "status": call.status
+        })
 
-    def post(self, request, call_id):
-        try:
-            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
-        except AgoraCallHistory.DoesNotExist:
-            return Response({"error": "Call not found or already ended"}, status=404)
 
-        call.end_call(ender="client")
-        return Response({"ok": True, "message": "Call ended"})
+# class EndCallView(APIView):
+#     permission_classes = [permissions.IsAuthenticated]
+
+#     def post(self, request, call_id):
+#         try:
+#             call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+#         except AgoraCallHistory.DoesNotExist:
+#             return Response({"error": "Call not found or already ended"}, status=404)
+
+#         call.end_call(ender="client")
+#         return Response({"ok": True, "message": "Call ended"})
 
 from users.models import UserProfile
 from rest_framework import generics
@@ -336,3 +426,62 @@ class ExecutiveAverageRatingAPIView(APIView):
             "executive_id": executive_id,
             "average_rating": round(avg_rating, 2) if avg_rating else 0
         }, status=status.HTTP_200_OK)
+
+class CallHistoryListAPIView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes = [JWTAuthentication]
+    pagination_class = CustomCallPagination
+
+    def get(self, request):
+        status_filter = request.query_params.get("status")  
+        queryset = AgoraCallHistory.objects.all().order_by("-start_time")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        paginator = self.pagination_class()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = CallHistorySerializer(paginated_queryset, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
+    
+
+class UserCallHistoryAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    pagination_class = CustomCallPagination
+
+    def get(self, request):
+        user = request.user
+        status_filter = request.query_params.get("status")  
+
+        queryset = AgoraCallHistory.objects.filter(user=user).order_by("-start_time")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        paginator = self.pagination_class()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = CallHistorySerializer(paginated_queryset, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
+
+
+
+class ExecutiveCallHistoryListAPIView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = CustomCallPagination
+
+    def get(self, request):
+        executive = request.user  
+
+        status_filter = request.query_params.get("status")
+        queryset = AgoraCallHistory.objects.filter(executive=executive).order_by("-start_time")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        paginator = self.pagination_class()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = CallHistorySerializer(paginated_queryset, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
