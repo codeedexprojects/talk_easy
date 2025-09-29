@@ -58,6 +58,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'accounts.middleware.JWTSessionTrackingMiddleware',
 ]
 
 
@@ -159,20 +160,29 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 #     }
 # }
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'talkeasy$talk_easy',
-        'USER': 'talkeasy',
-        'PASSWORD':'@1234567890',
-        'HOST':'talkeasy.mysql.pythonanywhere-services.com',
-        'PORT':'3306',
-        'OPTIONS': {
-            'charset': 'utf8mb4',  
-            'use_unicode': True,
-        },
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.mysql',
+#         'NAME': 'talkeasy$talk_easy',
+#         'USER': 'talkeasy',
+#         'PASSWORD':'@1234567890',
+#         'HOST':'talkeasy.mysql.pythonanywhere-services.com',
+#         'PORT':'3306',
+#         'OPTIONS': {
+#             'charset': 'utf8mb4',  
+#             'use_unicode': True,
+#         },
+#     }
+# }
+
+# settings.py
+
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',  
+#         'NAME': BASE_DIR / "db.sqlite3",         
+#     }
+# }
 
 
 
