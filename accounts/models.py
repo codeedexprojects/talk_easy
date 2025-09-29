@@ -44,15 +44,14 @@ class Admin(AbstractBaseUser, PermissionsMixin):
 
 
 class AdminSession(models.Model):
-    """Track admin login sessions across devices"""
     admin = models.ForeignKey('Admin', on_delete=models.CASCADE, related_name='login_sessions')
     device_name = models.CharField(max_length=255, blank=True)
-    device_type = models.CharField(max_length=50, blank=True)  # mobile, desktop, tablet
+    device_type = models.CharField(max_length=50, blank=True) 
     browser = models.CharField(max_length=100, blank=True)
     os = models.CharField(max_length=100, blank=True)
     ip_address = models.GenericIPAddressField()
     user_agent = models.TextField()
-    jwt_jti = models.CharField(max_length=255, unique=True, db_index=True)  # JWT token ID
+    jwt_jti = models.CharField(max_length=255, unique=True, db_index=True) 
     is_active = models.BooleanField(default=True, db_index=True)
     last_activity = models.DateTimeField(auto_now=True)
     login_time = models.DateTimeField(auto_now_add=True)
