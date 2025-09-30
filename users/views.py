@@ -275,14 +275,18 @@ class UserCoinBalanceView(APIView):
 
     def get(self, request):
         user = request.user
-        coin_balance = getattr(user, 'coin_balance', None)
-        if coin_balance is None:
-            return Response({"message": "Coin balance not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not hasattr(user, "stats"):
+            return Response(
+                {"message": "User stats not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         return Response({
             "user_id": user.id,
-            "coin_balance": coin_balance
+            "coin_balance": user.stats.coin_balance
         }, status=status.HTTP_200_OK)
+
 
 
 from executives.models import *
