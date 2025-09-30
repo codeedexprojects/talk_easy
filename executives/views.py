@@ -69,7 +69,7 @@ class RegisterExecutiveView(generics.CreateAPIView):
 
         return Response(
             {
-                "message": "Executive registered successfully",
+                "message": " Registration completed , the account will be verified within 24 hours.",
                 "executive": ExecutiveSerializer(executive).data
             },
             status=status.HTTP_201_CREATED

@@ -41,3 +41,9 @@ class AdminSessionSerializer(serializers.ModelSerializer):
         if hours > 0:
             return f"{hours}h {minutes}m"
         return f"{minutes}m"
+    
+class SessionSerializer(serializers.Serializer):
+    session_key = serializers.CharField()
+    expire_date = serializers.DateTimeField()
+    ip_address = serializers.CharField(required=False)
+    user_agent = serializers.CharField(required=False)
