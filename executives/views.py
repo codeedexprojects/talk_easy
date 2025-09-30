@@ -26,6 +26,10 @@ class LanguageListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
 
+class LanguageListView(generics.ListAPIView):
+    queryset = Language.objects.all()
+    serializer_class = LanguageSerializer
+    permission_classes = []
 
 class LanguageDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Language.objects.all()
@@ -729,4 +733,13 @@ class ExecutiveStatusAPIView(APIView):
     def get(self, request):
         executive = request.user 
         serializer = ExecutiveDetailSerializer(executive)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class ExecutiveStatsDetailView(APIView):
+    def get(self, request, id):
+        executive = get_object_or_404(Executive, id=id)
+
+        stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
+
+        serializer = ExecutiveStatsSerializer(stats)
         return Response(serializer.data, status=status.HTTP_200_OK)

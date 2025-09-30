@@ -4,6 +4,8 @@ from executives.views import *
 urlpatterns = [
 
     path("languages/", LanguageListCreateView.as_view(), name="language-list-create"),
+    path("list-languages/", LanguageListView.as_view(), name="language-list"),
+
     path("languages/<int:pk>/", LanguageDetailView.as_view(), name="language-detail"),
     path('register-executives/', RegisterExecutiveView.as_view(), name='register-executive'), #reg admin
     path("executive/login/", ExecutiveLoginView.as_view(), name="executive-login"), #login
@@ -39,5 +41,7 @@ urlpatterns = [
     # Get statistics
     path('admin/profile-pictures/stats/',AdminProfilePictureStatsView.as_view(),name='admin-profile-pictures-stats'),
     path("executives/status/", ExecutiveStatusAPIView.as_view(), name="executive-status"),
+    path("executives/<int:id>/stats/", ExecutiveStatsDetailView.as_view(), name="executive-stats-detail"),
+
 
 ]

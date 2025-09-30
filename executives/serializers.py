@@ -42,9 +42,11 @@ class ExecutiveOTPVerifySerializer(serializers.Serializer):
 
 
 class ExecutiveStatsSerializer(serializers.ModelSerializer):
+    executive_name = serializers.CharField(source="executive.name", read_only=True)
+
     class Meta:
         model = ExecutiveStats
-        fields = ['executive',
+        fields = ['executive_name','executive',
             'coins_per_second', 'amount_per_min', 'total_on_duty_seconds', 
             'total_talk_seconds_today', 'total_picked_calls', 'total_missed_calls', 'vault_Balance','total_earnings'
             ,'earnings_today','pending_payout','last_updated'
