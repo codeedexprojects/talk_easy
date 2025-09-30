@@ -68,7 +68,7 @@ class RegisterExecutiveView(generics.CreateAPIView):
         except ValidationError as e:
             error_messages = []
             for field, messages in e.detail.items():
-                error_messages.append(f"{field}: {' '.join(messages)}")
+                error_messages.append(f"{' '.join(messages)}")
 
             return Response(
                 {
