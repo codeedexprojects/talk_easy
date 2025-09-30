@@ -117,9 +117,22 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
 
 
 class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
+    is_favourite = serializers.SerializerMethodField()
+
     class Meta:
         model = Executive
-        fields = ["id", "name", "executive_id", "is_favorite"]
+        fields = [
+            'id', 'executive_id',
+            'status','is_offline', 'is_online', 'on_call',
+            'is_favourite',  
+        ]
+
+    def get_is_favourite(self, obj):
+        request = self.context.get('request', None)
+        if request and request.user.is_authenticated:
+            return Favourite.objects.filter(user=request.user, executive=obj).exists()
+        return False
+
 
 
 from executives.models import Language
@@ -144,8 +157,6 @@ class Executivelistserializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'last_login', 'stats', 'is_favourite']
 
     def get_is_favourite(self, obj):
-        """
-        Returns True if the current logged-in user has favorited this executive.
-        """
+
         user = self.context['request'].user
         return Favourite.objects.filter(user=user, executive=obj).exists()
