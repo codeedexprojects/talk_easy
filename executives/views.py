@@ -51,6 +51,8 @@ def generate_executive_id():
     return f"TEY{str(number).zfill(4)}"  # TEY00001
 
 
+from rest_framework.exceptions import ValidationError
+
 class RegisterExecutiveView(generics.CreateAPIView):
     permission_classes = []
     queryset = Executive.objects.all()
@@ -58,22 +60,35 @@ class RegisterExecutiveView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         data = request.data.copy()
-        
         data['executive_id'] = generate_executive_id()
 
         serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        executive = serializer.save()
+        try:
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as e:
+            errors = {}
+            for field, messages in e.detail.items():
+                errors[field] = " ".join(messages)
 
+            return Response(
+                {
+                    "message": "Registration failed. Please correct the errors below.",
+                    "errors": errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        executive = serializer.save()
         ExecutiveStats.objects.create(executive=executive)
 
         return Response(
             {
-                "message": " Registration completed , the account will be verified within 24 hours.",
+                "message": "Registration completed, the account will be verified within 24 hours.",
                 "executive": ExecutiveSerializer(executive).data
             },
             status=status.HTTP_201_CREATED
         )
+
 
 from django.contrib.auth.hashers import check_password
 from django.core.cache import cache
