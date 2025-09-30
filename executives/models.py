@@ -50,7 +50,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
 
     account_number = models.CharField(max_length=30, null=True, blank=True)
     ifsc_code = models.CharField(max_length=20, null=True, blank=True)
-
+    is_favourite = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 

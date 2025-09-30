@@ -114,3 +114,38 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
             "total_call_seconds_today": 0,
             "last_updated": None
         }
+
+
+class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Executive
+        fields = ["id", "name", "executive_id", "is_favorite"]
+
+
+from executives.models import Language
+class Executivelistserializer(serializers.ModelSerializer):
+    languages_known = serializers.SlugRelatedField(
+        many=True,
+        slug_field='name',
+        read_only=True
+    )
+    is_favourite = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Executive
+        fields = [
+            'id', 'executive_id', 'mobile_number', 'name', 'age', 'email_id', 'gender',
+            'profession', 'skills', 'place', 'education_qualification', 'status',
+            'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
+            'created_at', 'device_id', 'last_login', 'manager_executive',
+            'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
+            'on_call', 'password', 'languages_known', 'is_favourite'
+        ]
+        read_only_fields = ['id', 'created_at', 'last_login', 'stats', 'is_favourite']
+
+    def get_is_favourite(self, obj):
+        """
+        Returns True if the current logged-in user has favorited this executive.
+        """
+        user = self.context['request'].user
+        return Favourite.objects.filter(user=user, executive=obj).exists()

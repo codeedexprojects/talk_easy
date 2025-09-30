@@ -736,6 +736,8 @@ class ExecutiveStatusAPIView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
     
 class ExecutiveStatsDetailView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication] 
     def get(self, request, id):
         executive = get_object_or_404(Executive, id=id)
 

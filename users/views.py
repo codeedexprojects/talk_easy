@@ -300,12 +300,13 @@ class ExecutiveListAPIView(APIView):
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(executives, request, view=self)
-        serializer = ExecutiveSerializer(page, many=True)
+
+        serializer = Executivelistserializer(page, many=True, context={'request': request})
 
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
-        serializer = ExecutiveSerializer(data=request.data)
+        serializer = Executivelistserializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             channel_layer = get_channel_layer()
@@ -317,6 +318,7 @@ class ExecutiveListAPIView(APIView):
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -342,40 +344,6 @@ class UpdateUserStatusAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 from django.shortcuts import get_object_or_404
-
-class FavouriteExecutiveView(APIView):
- 
-    permission_classes = [IsAuthenticated]  
-
-    def get(self, request, user_id, *args, **kwargs):
-        user = get_object_or_404(UserProfile, id=user_id)
-        favourites = Favourite.objects.filter(user=user).select_related('executive')
-        executives = [fav.executive for fav in favourites]
-        serializer = ExecutiveFavoSerializer    (executives, many=True)
-        return Response({"user_id": user.id, "favourites": serializer.data}, status=status.HTTP_200_OK)
-
-    def post(self, request, user_id, executive_id, *args, **kwargs):
-        user = get_object_or_404(UserProfile, id=user_id)
-        executive = get_object_or_404(Executive, id=executive_id)
-
-        favourite, created = Favourite.objects.get_or_create(user=user, executive=executive)
-        if not created:
-            favourite.delete()
-            return Response({"message": "Executive removed from favourites."}, status=status.HTTP_200_OK)
-
-        return Response({"message": "Executive added to favourites."}, status=status.HTTP_201_CREATED)
-
-    def delete(self, request, user_id, executive_id, *args, **kwargs):
-        user = get_object_or_404(UserProfile, id=user_id)
-        executive = get_object_or_404(Executive, id=executive_id)
-
-        favourite = Favourite.objects.filter(user=user, executive=executive).first()
-        if not favourite:
-            return Response({"message": "This executive is not in your favourites."}, status=status.HTTP_404_NOT_FOUND)
-
-        favourite.delete()
-        return Response({"message": "Executive removed from favourites successfully."}, status=status.HTTP_200_OK)
-    
 
 class RatingExecutiveView(APIView):
     permission_classes = []
@@ -794,3 +762,50 @@ class UserAccountStatusView(APIView):
                 {"error": "User not found"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+class FavoriteExecutiveView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        favorites = Favourite.objects.filter(user=request.user).select_related('executive')
+        favorite_executives = [fav.executive for fav in favorites]
+
+        serializer = ExecutiveFavoriteSerializer(
+            favorite_executives,
+            many=True,
+            context={'request': request}
+        )
+        return Response({
+            'success': True,
+            'count': len(favorite_executives),
+            'results': serializer.data
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+
+        exec_id = request.data.get('id')
+        action = request.data.get('action', 'add')
+
+        if not exec_id:
+            return Response({'success': False, 'error': 'id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if action not in ['add', 'remove']:
+            return Response({'success': False, 'error': 'action must be either "add" or "remove"'}, status=status.HTTP_400_BAD_REQUEST)
+
+        executive = get_object_or_404(Executive, id=exec_id, status='active')
+
+        if action == 'add':
+            favourite, created = Favourite.objects.get_or_create(user=request.user, executive=executive)
+            if not created:
+                return Response({'success': False, 'message': 'Executive is already in favorites'}, status=status.HTTP_400_BAD_REQUEST)
+
+            serializer = ExecutiveFavoriteSerializer(executive, context={'request': request})
+            return Response({'success': True, 'message': 'Executive added to favorites successfully', 'data': serializer.data}, status=status.HTTP_200_OK)
+
+        else:  # remove
+            deleted, _ = Favourite.objects.filter(user=request.user, executive=executive).delete()
+            if not deleted:
+                return Response({'success': False, 'message': 'Executive is not in favorites'}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({'success': True, 'message': 'Executive removed from favorites successfully'}, status=status.HTTP_200_OK)
