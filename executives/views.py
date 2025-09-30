@@ -66,14 +66,13 @@ class RegisterExecutiveView(generics.CreateAPIView):
         try:
             serializer.is_valid(raise_exception=True)
         except ValidationError as e:
-            errors = {}
+            error_messages = []
             for field, messages in e.detail.items():
-                errors[field] = " ".join(messages)
+                error_messages.append(f"{field}: {' '.join(messages)}")
 
             return Response(
                 {
-                    "message": "Registration failed. Please correct the errors below.",
-                    "errors": errors
+                    "message": " ".join(error_messages)
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
@@ -88,6 +87,7 @@ class RegisterExecutiveView(generics.CreateAPIView):
             },
             status=status.HTTP_201_CREATED
         )
+
 
 
 from django.contrib.auth.hashers import check_password
