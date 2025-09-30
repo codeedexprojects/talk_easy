@@ -260,6 +260,19 @@ class ExecutiveUpdateByIDAPIView(APIView):
 class AdminUpdateExecutiveAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get(self, request, id):
+        user = request.user
+        if not getattr(user, 'is_staff', False) and not getattr(user, 'is_superuser', False):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveSerializer(executive)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
     def put(self, request, id):
         return self.update_executive(request, id)
 
@@ -280,8 +293,9 @@ class AdminUpdateExecutiveAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
-        
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     
 from users.models import UserProfile
 
