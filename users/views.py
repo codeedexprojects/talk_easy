@@ -502,16 +502,17 @@ class ReferralHistoryListView(APIView):
 
 from rest_framework.generics import ListAPIView,RetrieveAPIView
 from accounts.pagination import CustomUserPagination
+from rest_framework import generics
 
 class UserProfileListView(ListAPIView):
     queryset = UserProfile.objects.filter(is_deleted=False).order_by('-created_at')
     serializer_class = UserProfileSerializerAdmin
     pagination_class = CustomUserPagination
 
-class UserDetailView(RetrieveAPIView):
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializerAdmin
-    permission_classes = [] 
+    permission_classes = [IsAuthenticated] 
 
     def get_object(self):
         user_id = self.kwargs.get("user_id")
