@@ -125,8 +125,7 @@ class ExecutiveProfilePictureSerializer(serializers.ModelSerializer):
             'id',
             'executive',
             'executive_name',
-            'profile_photo',
-            'profile_photo_url',
+            'profile_photo_url',   # keep only absolute url
             'status',
             'status_display',
             'created_at',
@@ -135,7 +134,6 @@ class ExecutiveProfilePictureSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'executive']
     
     def get_profile_photo_url(self, obj):
-
         if obj.profile_photo:
             request = self.context.get('request')
             if request is not None:
@@ -152,8 +150,8 @@ class ExecutiveProfilePictureSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Invalid file format. Please upload JPG, JPEG, PNG, or GIF files only."
                 )
-        
         return value
+
 
 
 class ExecutiveProfilePictureUploadSerializer(serializers.Serializer):

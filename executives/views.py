@@ -448,7 +448,7 @@ class ExecutiveProfilePictureUploadView(APIView):
             profile_picture.profile_photo = request.FILES['profile_photo']
             profile_picture.save()
 
-            serializer = ExecutiveProfilePictureSerializer(profile_picture)
+            serializer = ExecutiveProfilePictureSerializer(profile_picture, context={"request": request})
 
             return Response({
                 "message": "Profile picture uploaded successfully. Status: Pending approval.",
@@ -469,7 +469,7 @@ class ExecutiveProfilePictureUploadView(APIView):
 
             try:
                 profile_picture = ExecutiveProfilePicture.objects.get(executive=executive)
-                serializer = ExecutiveProfilePictureSerializer(profile_picture)
+                serializer = ExecutiveProfilePictureSerializer(profile_picture, context={"request": request})
                 return Response(serializer.data, status=status.HTTP_200_OK)
             except ExecutiveProfilePicture.DoesNotExist:
                 return Response(
