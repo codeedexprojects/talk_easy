@@ -122,7 +122,7 @@ class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id',
+            'id', 'executive_id','name',
             'status','is_offline', 'is_online', 'on_call',
             'is_favourite',  
         ]
