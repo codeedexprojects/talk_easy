@@ -518,6 +518,16 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
         user_id = self.kwargs.get("user_id")
         return get_object_or_404(UserProfile, id=user_id)
     
+class UserDetailViewAdmin(generics.RetrieveUpdateDestroyAPIView):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserProfileSerializerAdmin
+    permission_classes = [IsAdminUser]
+    authentication_classes =[JWTAuthentication] 
+
+    def get_object(self):
+        user_id = self.kwargs.get("user_id")
+        return get_object_or_404(UserProfile, id=user_id)
+    
 from rest_framework.permissions import IsAdminUser
 from django.db.models import Q
 
