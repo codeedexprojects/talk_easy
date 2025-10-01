@@ -231,7 +231,17 @@ class ExecutiveDetailAPIView(APIView):
     
 
 class ExecutiveUpdateByIDAPIView(APIView):
-    permission_classes = [IsAuthenticated] 
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveSerializer(executive)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request, id):
         return self.update_executive(request, id)
@@ -251,6 +261,7 @@ class ExecutiveUpdateByIDAPIView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     
 class AdminUpdateExecutiveAPIView(APIView):
     permission_classes = [IsAdminUser]
