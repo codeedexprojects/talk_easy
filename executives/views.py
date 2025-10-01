@@ -190,26 +190,20 @@ class ExecutiveVerifyOTPView(APIView):
 from rest_framework.permissions import IsAuthenticated
 
 class ExecutiveLogoutView(APIView):
-    permission_classes = []
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, executive_id):
-        refresh_token = request.data.get("refresh_token")
+        updated = Executive.objects.filter(id=executive_id).update(
+            online=False, 
+            is_logged_out=True
+        )
 
-        if not refresh_token:
-            return Response({"message": "refresh_token is required."}, status=400)
-
-        try:
-            token_obj = ExecutiveToken.objects.get(refresh_token=refresh_token, executive_id=executive_id)
-            token_obj.revoked = True
-            token_obj.revoked_at = timezone.now()
-            token_obj.save()
-        except ExecutiveToken.DoesNotExist:
-            return Response({"message": "Token not found or already revoked."}, status=404)
-
-        # Update executive status if needed
-        Executive.objects.filter(id=executive_id).update(online=False, is_logged_out=True)
+        if updated == 0:
+            return Response({"message": "Executive not found."}, status=404)
 
         return Response({"message": "Logout successful."}, status=200)
+
 
 from django.shortcuts import get_object_or_404
 from rest_framework_simplejwt.authentication import JWTAuthentication
