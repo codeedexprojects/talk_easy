@@ -145,7 +145,8 @@ class ExecutiveLoginView(APIView):
 
         return Response({
             "message": "Password verified. OTP sent to your mobile. Please verify to complete login.",
-            "status": True
+            "status": True,
+            "otp":executive.otp
         }, status=status.HTTP_200_OK)
 
 
