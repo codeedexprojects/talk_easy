@@ -48,7 +48,7 @@ class RechargePlanListCreateAPIView(generics.ListCreateAPIView):
 
 
 #  Plan Detail
-class RechargePlanDetailAPIView(generics.RetrieveAPIView):
+class RechargePlanDetailAPIView(generics.RetrieveUpdateAPIView):
     queryset = RechargePlan.objects.filter(is_deleted=False)
     serializer_class = RechargePlanSerializer
     permission_classes = [IsAuthenticated]
