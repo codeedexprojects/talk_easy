@@ -544,3 +544,104 @@ class RecentExecutiveCallsAPIView(APIView):
             "total_pending_calls": pending_calls.count(),
             "pending_calls": serializer.data
         }, status=status.HTTP_200_OK)
+
+
+class UserEndCallView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+        except AgoraCallHistory.DoesNotExist:
+            return Response({"error": "Call not found or already ended"}, status=404)
+
+        # Get user coin balance
+        try:
+            user_balance = call.user.stats.coin_balance
+        except UserStats.DoesNotExist:
+            user_balance = 0
+
+        if user_balance <= 0:
+            call.end_call(ender="system")
+            reason = "Insufficient balance, call ended automatically"
+        else:
+            call.end_call(ender="user")
+            reason = "Call ended by user"
+
+        # Send WebSocket notification
+        self.notify_end_call(call, reason)
+
+        return Response({
+            "ok": True,
+            "message": reason,
+            "coins_deducted": call.coins_deducted,
+            "executive_earnings": float(call.executive_earnings),
+            "duration_seconds": call.duration_seconds
+        })
+
+
+    def notify_end_call(self, call, reason):
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                    async_to_sync(channel_layer.group_send)(
+                        group_name,
+                        {
+                            'type': 'call_ended',
+                            'call_id': call.id,
+                            'reason': reason,
+                            'ended_by': call.ended_by,
+                            'coins_deducted': call.coins_deducted,
+                            'executive_earnings': float(call.executive_earnings),
+                            'duration_seconds': call.duration_seconds
+                        }
+                    )
+        except Exception as e:
+            print(f"WebSocket notification failed: {e}")
+
+
+
+class ExecutiveEndCallView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [ExecutiveTokenAuthentication]
+
+    def post(self, request, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+        except AgoraCallHistory.DoesNotExist:
+            return Response({"error": "Call not found or already ended"}, status=404)
+
+        call.end_call(ender="executive")
+        reason = "Call ended by executive"
+
+        # Send WebSocket notification
+        self.notify_end_call(call, reason)
+
+        return Response({
+            "ok": True,
+            "message": reason,
+            "coins_deducted": call.coins_deducted,
+            "executive_earnings": float(call.executive_earnings),
+            "duration_seconds": call.duration_seconds
+        })
+
+    def notify_end_call(self, call, reason):
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                    async_to_sync(channel_layer.group_send)(
+                        group_name,
+                        {
+                            'type': 'call_ended',
+                            'call_id': call.id,
+                            'reason': reason,
+                            'ended_by': call.ended_by,
+                            'coins_deducted': call.coins_deducted,
+                            'executive_earnings': float(call.executive_earnings),
+                            'duration_seconds': call.duration_seconds
+                        }
+                    )
+        except Exception as e:
+            print(f"WebSocket notification failed: {e}")
