@@ -24,7 +24,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 
-from .models import AgoraCallHistory, Executive, ExecutiveStats
+from calls.models import AgoraCallHistory
+from executives.models import *
 from users.models import UserStats
 from .serializers import CallInitiateSerializer
 from .tasks import mark_call_as_missed
