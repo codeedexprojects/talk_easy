@@ -34,6 +34,18 @@ from asgiref.sync import async_to_sync
 from users.models import UserStats
 
 
+import threading
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+
+from .models import AgoraCallHistory, Executive, ExecutiveStats, UserStats
+from .serializers import CallInitiateSerializer
+from .tasks import mark_call_as_missed
+from .utils import generate_agora_token
+
+
 class CallInitiateView(APIView):
     def post(self, request):
         serializer = CallInitiateSerializer(data=request.data)
@@ -69,12 +81,12 @@ class CallInitiateView(APIView):
             executive.on_call = True
             executive.save(update_fields=["on_call"])
 
-            # Generate tokens for caller and executive
+            # Generate tokens
             caller_token = generate_agora_token(channel_name, caller_uid)
             callee_uid = caller_uid + 1000
             executive_token = generate_agora_token(channel_name, callee_uid)
 
-            # Get executive rates safely
+            # Get executive stats
             exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
             rate_per_minute = exec_stats.amount_per_min
             coins_per_second = exec_stats.coins_per_second
@@ -97,8 +109,8 @@ class CallInitiateView(APIView):
             # Send WebSocket notification
             self.send_incoming_call_notification(executive_id, call_history, user)
 
-            # Schedule missed call check
-            self.schedule_missed_call_check(call_history.id)
+            # Schedule missed call check (runs after 30 seconds)
+            self.schedule_missed_call_check(call_history.id, delay=30)
 
             return Response({
                 "id": call_history.id,
@@ -114,6 +126,10 @@ class CallInitiateView(APIView):
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def schedule_missed_call_check(self, call_id, delay=30):
+        """Run missed call check after delay using threading (no Celery)."""
+        threading.Timer(delay, mark_call_as_missed, args=[call_id]).start()
 
     def validate_executive(self, executive):
         if not executive.is_online:
