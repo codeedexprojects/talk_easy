@@ -15,21 +15,13 @@ from executives.models import ExecutiveStats
 from .pagination import CustomCallPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAdminUser
-
-
-
+from calls.utils import generate_agora_token
 import threading
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.shortcuts import get_object_or_404
-
-from calls.models import AgoraCallHistory
-from executives.models import *
+import time
+from executives.models import Executive
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 from users.models import UserStats
-from .serializers import CallInitiateSerializer
-from .tasks import mark_call_as_missed
-from .utils import generate_agora_token
 
 class IsAuthenticatedOrService(permissions.BasePermission):
  
@@ -39,25 +31,23 @@ class IsAuthenticatedOrService(permissions.BasePermission):
         # allow for webhook endpoint; actual verification will be inside the view
         return view.__class__.__name__ == "AgoraWebhookView"
 
-from calls.utils import generate_agora_token
+
+
+
 import threading
-import time
-from executives.models import Executive
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from users.models import UserStats
-
-
-import threading
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
+from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .models import AgoraCallHistory, Executive, ExecutiveStats, UserStats
-from .serializers import CallInitiateSerializer
-from .tasks import mark_call_as_missed
-from .utils import generate_agora_token
+from .models import AgoraCallHistory
+from calls.serializers import CallInitiateSerializer
+from calls.utils import generate_agora_token
+from executives.models import Executive, ExecutiveStats
+from users.models import UserStats
 
 
 class CallInitiateView(APIView):
@@ -123,8 +113,8 @@ class CallInitiateView(APIView):
             # Send WebSocket notification
             self.send_incoming_call_notification(executive_id, call_history, user)
 
-            # Schedule missed call check (runs after 30 seconds)
-            self.schedule_missed_call_check(call_history.id, delay=30)
+            # Schedule missed call check (non-Celery)
+            threading.Timer(30, self.mark_call_as_missed, args=[call_history.id]).start()
 
             return Response({
                 "id": call_history.id,
@@ -140,10 +130,6 @@ class CallInitiateView(APIView):
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def schedule_missed_call_check(self, call_id, delay=30):
-        """Run missed call check after delay using threading (no Celery)."""
-        threading.Timer(delay, mark_call_as_missed, args=[call_id]).start()
 
     def validate_executive(self, executive):
         if not executive.is_online:
@@ -178,9 +164,32 @@ class CallInitiateView(APIView):
         except Exception as e:
             print(f"WebSocket notification failed: {e}")
 
-    def schedule_missed_call_check(self, call_id):
-        from .tasks import mark_call_as_missed
-        mark_call_as_missed.apply_async(args=[call_id], countdown=30)
+    @staticmethod
+    def mark_call_as_missed(call_id):
+        """Mark call as missed after timeout (threading version)."""
+        try:
+            call = AgoraCallHistory.objects.get(id=call_id, status="pending")
+            call.status = "missed"
+            call.is_active = False
+            call.end_time = timezone.now()
+            call.save(update_fields=["status", "is_active", "end_time"])
+
+            call.executive.on_call = False
+            call.executive.save(update_fields=["on_call"])
+
+            # WebSocket notifications
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"executive_{call.executive.id}",
+                    {"type": "call_missed", "call_id": call_id}
+                )
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{call.user.id}",
+                    {"type": "call_missed", "call_id": call_id}
+                )
+        except AgoraCallHistory.DoesNotExist:
+            pass
 
 
 
