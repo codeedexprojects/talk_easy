@@ -99,10 +99,13 @@ class ExecutiveSerializer(serializers.ModelSerializer):
 
 
 
-class BlockUserSerializer(serializers.ModelSerializer):
+class BlockedUserSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
+
     class Meta:
         model = BlockedusersByExecutive
-        fields = ['user', 'reason','is_blocked','executive']
+        fields = ["id", "user_id", "user_name", "reason", "is_blocked", "blocked_at"]
 
 class ExecutiveStatusUpdateSerializer(serializers.ModelSerializer):
     class Meta:

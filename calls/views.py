@@ -485,3 +485,23 @@ class ExecutiveCallHistoryListAPIView(APIView):
         serializer = CallHistorySerializer(paginated_queryset, many=True)
 
         return paginator.get_paginated_response(serializer.data)
+
+
+class RecentExecutiveCallsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [ExecutiveTokenAuthentication]  
+
+    def get(self, request, executive_id):
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        pending_calls = AgoraCallHistory.objects.filter(
+            executive=executive,
+            status="pending"
+        ).order_by("-start_time")[:20]
+
+        serializer = CallHistorySerializer(pending_calls, many=True)
+        return Response({
+            "executive": executive.name,
+            "total_pending_calls": pending_calls.count(),
+            "pending_calls": serializer.data
+        }, status=status.HTTP_200_OK)

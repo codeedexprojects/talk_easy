@@ -77,5 +77,5 @@ class CallHistorySerializer(serializers.ModelSerializer):
         fields = [
             "id", "channel_name", "status", "start_time", "end_time",
             "duration_seconds", "coins_deducted", "executive_earnings",
-            "user_name", "executive_name"
+            "user_name", "executive_name",'user','executive'
         ]

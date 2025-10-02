@@ -760,3 +760,20 @@ class ExecutiveStatsDetailView(APIView):
 
         serializer = ExecutiveStatsSerializer(stats)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+class BlockedUsersListByExecutiveAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]  
+
+    def get(self, request, executive_id):
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        blocked_users = BlockedusersByExecutive.objects.filter(executive=executive, is_blocked=True).select_related("user")
+
+        serializer = BlockedUserSerializer(blocked_users, many=True)
+        return Response({
+            "executive": executive.name,
+            "total_blocked": blocked_users.count(),
+            "blocked_users": serializer.data
+        }, status=status.HTTP_200_OK)

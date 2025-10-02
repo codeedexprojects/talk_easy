@@ -23,5 +23,6 @@ urlpatterns = [
     path("call-History/", CallHistoryListAPIView.as_view(), name="call-history-list"), #admin list
     path("user-history/", UserCallHistoryAPIView.as_view(), name="user-call-history"), #user list
     path("executive-call-history/", ExecutiveCallHistoryListAPIView.as_view(), name="executive-call-history"), #executive list
+    path("executives-recent-calls/<int:executive_id>/", RecentExecutiveCallsAPIView.as_view(), name="recent-calls-executive"),
 
 ]

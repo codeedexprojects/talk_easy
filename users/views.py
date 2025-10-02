@@ -824,3 +824,26 @@ class FavoriteExecutiveView(APIView):
                 return Response({'success': False, 'message': 'Executive is not in favorites'}, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({'success': True, 'message': 'Executive removed from favorites successfully'}, status=status.HTTP_200_OK)
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+
+class ExecutiveRatingsAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]  
+
+    def get(self, request, executive_id):
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        ratings = Rating.objects.filter(executive=executive).order_by("-created_at")
+        serializer = RatingSerializer(ratings, many=True)
+
+        return Response({
+            "executive": executive.name,
+            "total_ratings": ratings.count(),
+            "average_rating": ratings.aggregate(avg=models.Avg("rating"))["avg"] or 0,
+            "ratings": serializer.data
+        }, status=status.HTTP_200_OK)

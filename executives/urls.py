@@ -42,6 +42,7 @@ urlpatterns = [
     path('admin/profile-pictures/stats/',AdminProfilePictureStatsView.as_view(),name='admin-profile-pictures-stats'),
     path("executives/status/", ExecutiveStatusAPIView.as_view(), name="executive-status"),
     path("executives/<int:id>/stats/", ExecutiveStatsDetailView.as_view(), name="executive-stats-detail"),
+    path("executives-blocked-users/<int:executive_id>/", BlockedUsersListByExecutiveAPIView.as_view(), name="blocked-users-by-executive"),
 
 
 ]
