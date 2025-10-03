@@ -40,9 +40,10 @@ class RegisterOrLoginView(APIView):
             # If user is banned
             if user.is_banned:
                 return Response({
-                    'message': 'User is banned and cannot log in.',
+                    'message': 'User is banned or deleted , cannot log in.',
                     'is_banned': True,
-                    'is_existing_user': True
+                    'is_existing_user': True,
+                    'is_deleted': user.is_deleted,
                 }, status=status.HTTP_403_FORBIDDEN)
 
             # Send OTP
