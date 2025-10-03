@@ -450,6 +450,7 @@ class CareerDetailView(APIView):
         return Response({"message": "Career entry deleted successfully."}, status=status.HTTP_200_OK)
     
 class CarouselImageListCreateView(APIView):
+    permission_classes=[]
     def get(self, request):
         images = CarouselImage.objects.all()
         serializer = CarouselImageSerializer(images, many=True, context={'request': request})
