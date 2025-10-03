@@ -17,7 +17,7 @@ class RechargePlanCategoryListCreateAPIView(generics.ListCreateAPIView):
 
 
 #  Category Detail
-class RechargePlanCategoryDetailAPIView(generics.RetrieveAPIView):
+class RechargePlanCategoryDetailAPIView(generics.RetrieveUpdateAPIView):
     queryset = RechargePlanCatogary.objects.filter(is_deleted=False)
     serializer_class = RechargePlanCategorySerializer
     permission_classes = [IsAuthenticated]
