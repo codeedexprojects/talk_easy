@@ -3,6 +3,8 @@ from users.models import *
 from executives.models import Language
 from executives.models import ExecutiveProfilePicture
 from django.conf import settings
+from django.db.models import Avg
+
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -144,6 +146,7 @@ class Executivelistserializer(serializers.ModelSerializer):
     languages_known = serializers.SlugRelatedField(many=True, slug_field='name', read_only=True)
     is_favourite = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
@@ -154,7 +157,7 @@ class Executivelistserializer(serializers.ModelSerializer):
             'created_at', 'device_id', 'last_login', 'manager_executive',
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
             'on_call', 'languages_known', 'is_favourite',
-            'profile_photo_url'   
+            'profile_photo_url','average_rating'
         ]
         read_only_fields = ['id', 'created_at', 'last_login', 'stats', 'is_favourite']
 
@@ -176,5 +179,7 @@ class Executivelistserializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(url)
             return url
         return None
-
-
+    
+    def get_average_rating(self, obj):
+            avg_rating = Rating.objects.filter(executive=obj).aggregate(Avg("rating"))["rating__avg"]
+            return round(avg_rating, 1) if avg_rating else None
