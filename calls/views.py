@@ -192,18 +192,6 @@ class CallInitiateView(APIView):
             pass
 
 
-
-class GetCallByChannelView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, channel_name):
-        try:
-            call = AgoraCallHistory.objects.get(channel_name=channel_name)
-        except AgoraCallHistory.DoesNotExist:
-            return Response({"detail": "Not found"}, status=404)
-        return Response(CallDetailSerializer(call).data)
-
-
 class MarkJoinedView(APIView):
    
     permission_classes = [permissions.IsAuthenticated]
@@ -215,57 +203,6 @@ class MarkJoinedView(APIView):
             return Response({"detail": "Active call not found"}, status=404)
         call.mark_joined()
         return Response({"ok": True})
-
-
-class EndCallView(APIView):
-    permission_classes = []
-
-    def post(self, request, call_id):
-        try:
-            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
-        except AgoraCallHistory.DoesNotExist:
-            return Response({"error": "Call not found or already ended"}, status=404)
-
-        #  Check if user has coins left before ending
-        if call.user.coin_balance <= 0:
-            call.end_call(ender="system")
-            reason = "Insufficient balance, call ended automatically"
-        else:
-            call.end_call(ender="client")
-            reason = "Call ended by user"
-
-        try:
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                caller_group = f"user_client_{call.user_id}"
-                executive_group = f"user_executive_{call.executive_id}"
-                for group_name in [caller_group, executive_group]:
-                    async_to_sync(channel_layer.group_send)(
-                        group_name,
-                        {
-                            'type': 'call_ended',
-                            'call_id': call.id,
-                            'reason': reason,
-                            'ended_by': call.ended_by,
-                            'coins_deducted': call.coins_deducted,
-                            'executive_earnings': float(call.executive_earnings),
-                            'duration_seconds': call.duration_seconds
-                        }
-                    )
-        except Exception as e:
-            print(f"WebSocket end call notification failed: {e}")
-
-        return Response({
-            "ok": True,
-            "message": reason,
-            "coins_deducted": call.coins_deducted,
-            "executive_earnings": float(call.executive_earnings),
-            "duration_seconds": call.duration_seconds
-        })
-
-
-
-
 
 
 class AgoraWebhookView(APIView):

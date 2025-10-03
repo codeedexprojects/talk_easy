@@ -532,7 +532,8 @@ from rest_framework.permissions import IsAdminUser
 from django.db.models import Q
 
 class UserSoftDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
     
     def delete(self, request, user_id=None):
         try:
@@ -579,6 +580,24 @@ class UserSoftDeleteView(APIView):
                 {"error": f"An error occurred: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+class DeleteUserAccountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id, is_deleted=False)
+        except UserProfile.DoesNotExist:
+            return Response({"error": "User not found or already deleted"}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user.id != user.id:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        user.is_deleted = True
+        user.is_active = False
+        user.save()
+
+        return Response({"message": "User account deleted successfully"}, status=status.HTTP_200_OK)
 
 
 class UserAccountRestoreView(APIView):

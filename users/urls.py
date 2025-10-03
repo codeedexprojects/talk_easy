@@ -22,7 +22,7 @@ urlpatterns = [
     path('users/', UserProfileListView.as_view(), name='user-list'),
     path('users/<int:pk>/', UserDetailView.as_view(), name='user-detail'),
     # User self-deletion
-    path('users/delete-account/',UserSoftDeleteView.as_view(),name='user-self-delete'),    
+    path("user-delete/<int:user_id>/", DeleteUserAccountView.as_view(), name="delete-user"),
     # Admin delete specific user
     path('users/<int:user_id>/delete/',UserSoftDeleteView.as_view(),name='admin-user-delete'),    
     # Admin restore user account

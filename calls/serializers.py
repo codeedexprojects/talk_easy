@@ -71,11 +71,13 @@ class CallRatingSerializer(serializers.ModelSerializer):
 class CallHistorySerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.name", read_only=True)
     executive_name = serializers.CharField(source="executive.name", read_only=True)
+    user_id = serializers.CharField(source="user.user_id", read_only=True)
+    executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
 
     class Meta:
         model = AgoraCallHistory
         fields = [
             "id", "channel_name", "status", "start_time", "end_time",
             "duration_seconds", "coins_deducted", "executive_earnings",
-            "user_name", "executive_name",'user','executive'
+            "user_name", "executive_name",'user','user_id','executive','executive_id'
         ]
