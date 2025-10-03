@@ -141,11 +141,7 @@ class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
 
 from executives.models import Language
 class Executivelistserializer(serializers.ModelSerializer):
-    languages_known = serializers.SlugRelatedField(
-        many=True,
-        slug_field='name',
-        read_only=True
-    )
+    languages_known = serializers.SlugRelatedField(many=True,slug_field='name',read_only=True)
     is_favourite = serializers.SerializerMethodField()
 
     class Meta:

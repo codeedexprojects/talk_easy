@@ -73,11 +73,19 @@ class CallHistorySerializer(serializers.ModelSerializer):
     executive_name = serializers.CharField(source="executive.name", read_only=True)
     user_id = serializers.CharField(source="user.user_id", read_only=True)
     executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
+    is_blocked = serializers.SerializerMethodField()
 
     class Meta:
         model = AgoraCallHistory
         fields = [
             "id", "channel_name", "status", "start_time", "end_time",
             "duration_seconds", "coins_deducted", "executive_earnings",
-            "user_name", "executive_name",'user','user_id','executive','executive_id'
+            "user_name", "executive_name",'user','user_id','executive','executive_id','is_blocked'
         ]
+
+    def get_is_blocked(self, obj):
+        from calls.models import BlockedusersByExecutive  
+        blocked_entry = BlockedusersByExecutive.objects.filter(
+            user=obj.user, executive=obj.executive, is_blocked=True
+        ).first()
+        return bool(blocked_entry)
