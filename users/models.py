@@ -216,6 +216,8 @@ class CarouselImage(models.Model):
     title = models.CharField(max_length=255,null=True)
     image = models.ImageField(upload_to='carousel_images/')
     created_at = models.DateTimeField(auto_now_add=True)
+    for_user = models.BooleanField(default=False)
+    for_executive = models.BooleanField(default=False)
 
     def __str__(self):
         return self.title
