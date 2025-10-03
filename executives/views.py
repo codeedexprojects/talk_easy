@@ -316,7 +316,7 @@ class BlockUserAPIView(APIView):
         try:
             user = UserProfile.objects.get(id=user_id)
         except UserProfile.DoesNotExist:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         obj, created = BlockedusersByExecutive.objects.update_or_create(
             user=user,
@@ -324,7 +324,7 @@ class BlockUserAPIView(APIView):
             defaults={'is_blocked': True, 'reason': 'Blocked by executive'}
         )
         return Response(
-            {"detail": f"User {user_id} blocked by Executive {executive.executive_id} successfully.", "status": True},
+            {"message": f"User {user_id} blocked by Executive {executive.executive_id} successfully.", "status": True},
             status=status.HTTP_200_OK
         )
 
@@ -341,12 +341,12 @@ class UnblockUserAPIView(APIView):
             blocked_entry.is_blocked = False
             blocked_entry.save(update_fields=['is_blocked'])
             return Response(
-                {"detail": f"User {user_id} unblocked by Executive {executive.executive_id} successfully.", "status": True},
+                {"message": f"User {user_id} unblocked by Executive {executive.executive_id} successfully.", "status": True},
                 status=status.HTTP_200_OK
             )
         except BlockedusersByExecutive.DoesNotExist:
             return Response(
-                {"detail": "This user is not blocked by you.", "status": False},
+                {"message": "This user is not blocked by you.", "status": False},
                 status=status.HTTP_404_NOT_FOUND
             )
         
