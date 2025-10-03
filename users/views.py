@@ -5,7 +5,7 @@ from rest_framework import status
 from users.authentication import UserProfileJWTAuthentication
 from users.models import  ReferralCode, ReferralHistory, DeletedUser,UserProfile
 from executives.utils import send_otp
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated,AllowAny
 from users.serializers import *
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -464,6 +464,7 @@ class CarouselImageListCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class CarouselImageDetailView(APIView):
+    permission_classes=[]
     def get(self, request, image_id):
         try:
             image = CarouselImage.objects.get(id=image_id)
@@ -884,3 +885,31 @@ class ExecutiveRatingsAPIView(APIView):
             "average_rating": ratings.aggregate(avg=models.Avg("rating"))["avg"] or 0,
             "ratings": serializer.data
         }, status=status.HTTP_200_OK)
+    
+
+
+class CarouselImageListAPIView(APIView):
+    permission_classes=[AllowAny]
+    def get(self, request):
+        user_type = request.query_params.get("type")
+
+        if user_type == "user":
+            images = CarouselImage.objects.filter(for_user=True).order_by("-created_at")
+        elif user_type == "executive":
+            images = CarouselImage.objects.filter(for_executive=True).order_by("-created_at")
+        else:
+            return Response(
+                {"error": "Please provide type=user or type=executive"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        data = [
+            {
+                "id": img.id,
+                "title": img.title,
+                "image": request.build_absolute_uri(img.image.url),
+                "created_at": img.created_at,
+            }
+            for img in images
+        ]
+        return Response({"carousel_images": data}, status=status.HTTP_200_OK)

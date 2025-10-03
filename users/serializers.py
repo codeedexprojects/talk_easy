@@ -70,7 +70,7 @@ class CarouselImageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CarouselImage
-        fields = ['id', 'title', 'image', 'created_at']
+        fields = ['id', 'title', 'image', 'created_at','for_executive','for_user']
 
     # def get_full_image_url(self, obj):
     #     request = self.context.get('request')
