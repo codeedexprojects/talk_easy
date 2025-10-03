@@ -39,7 +39,7 @@ urlpatterns = [
     path('users/<int:user_id>/status/',UserAccountStatusView.as_view(),name='admin-user-status'),
     path('executives/favorites/', FavoriteExecutiveView.as_view(), name='favorite-executives'),
     path("executives-ratings/<int:executive_id>/", ExecutiveRatingsAPIView.as_view(), name="executive-ratings"),
-    path("carousels", CarouselImageListAPIView.as_view(), name="carousel-images-list"),
+    path("carousels/",CarouselImageListAPIView.as_view(), name="carousel-images-list"),
 
 
 ]
