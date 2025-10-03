@@ -38,12 +38,12 @@ class RegisterOrLoginView(APIView):
             user = UserProfile.objects.get(mobile_number=mobile_number)
 
             # If user is banned
-            if user.is_banned:
+            if user.is_banned and not user.is_deleted:
                 return Response({
-                    'message': 'User is banned or deleted , cannot log in.',
+                    'message': 'User is banned or deleted cannot log in.',
                     'is_banned': True,
                     'is_existing_user': True,
-                    'is_deleted': user.is_deleted,
+                    'is_deleted': user.is_deleted
                 }, status=status.HTTP_403_FORBIDDEN)
 
             # Send OTP
