@@ -163,15 +163,18 @@ class Executivelistserializer(serializers.ModelSerializer):
         return Favourite.objects.filter(user=user, executive=obj).exists()
 
     def get_profile_photo_url(self, obj):
-        """Return the latest active profile photo of the executive"""
         request = self.context.get('request')
+
+        # Get latest uploaded profile picture regardless of status
         profile_pic = ExecutiveProfilePicture.objects.filter(
-            executive=obj, status="active"
+            executive=obj
         ).order_by("-created_at").first()
 
         if profile_pic and profile_pic.profile_photo:
-            if request:
-                return request.build_absolute_uri(profile_pic.profile_photo.url)
-            return profile_pic.profile_photo.url
+            url = profile_pic.profile_photo.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
         return None
+
 
