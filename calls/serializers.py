@@ -84,7 +84,7 @@ class CallHistorySerializer(serializers.ModelSerializer):
         ]
 
     def get_is_blocked(self, obj):
-        from calls.models import BlockedusersByExecutive  
+        from executives.models import BlockedusersByExecutive  
         blocked_entry = BlockedusersByExecutive.objects.filter(
             user=obj.user, executive=obj.executive, is_blocked=True
         ).first()
