@@ -38,12 +38,11 @@ class RegisterOrLoginView(APIView):
             user = UserProfile.objects.get(mobile_number=mobile_number)
 
             # If user is banned
-            if user.is_banned and not user.is_deleted:
+            if user.is_banned:
                 return Response({
-                    'message': 'User is banned or deleted cannot log in.',
+                    'message': 'User is banned and cannot log in.',
                     'is_banned': True,
-                    'is_existing_user': True,
-                    'is_deleted': user.is_deleted
+                    'is_existing_user': True
                 }, status=status.HTTP_403_FORBIDDEN)
 
             # Send OTP
@@ -589,16 +588,33 @@ class DeleteUserAccountView(APIView):
         try:
             user = UserProfile.objects.get(id=user_id, is_deleted=False)
         except UserProfile.DoesNotExist:
-            return Response({"error": "User not found or already deleted"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "User not found or already deleted"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         if request.user.id != user.id:
-            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"error": "Permission denied"},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         user.is_deleted = True
         user.is_active = False
-        user.save()
+        user.save(update_fields=["is_deleted", "is_active"])
 
-        return Response({"message": "User account deleted successfully"}, status=status.HTTP_200_OK)
+        try:
+            user_stats = user.stats
+            user_stats.coin_balance = 0
+            user_stats.save(update_fields=["coin_balance"])
+        except UserStats.DoesNotExist:
+            pass
+
+        return Response(
+            {"message": "User account deleted successfully"},
+            status=status.HTTP_200_OK
+        )
+
 
 
 class UserAccountRestoreView(APIView):
