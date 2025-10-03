@@ -343,8 +343,7 @@ class BlockedUsersListAPIView(APIView):
         data = [
             {
                 "user_id": obj.user.id,
-                "username": obj.user.name,
-                "mobile": obj.user.mobile_number,
+                "username": obj.user.user_id,
                 "reason": obj.reason,
                 "blocked_at": obj.blocked_at,
             }
