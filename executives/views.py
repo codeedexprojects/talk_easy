@@ -311,7 +311,7 @@ class BlockUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, user_id):
-        executive = request.user  
+        executive = request.user 
 
         try:
             user = UserProfile.objects.get(id=user_id)
@@ -327,6 +327,10 @@ class BlockUserAPIView(APIView):
             {"message": f"User {user_id} blocked by Executive {executive.executive_id} successfully.", "status": True},
             status=status.HTTP_200_OK
         )
+    
+class BlockedUsersListAPIView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         executive = request.user  
@@ -348,7 +352,6 @@ class BlockUserAPIView(APIView):
         ]
 
         return Response({"blocked_users": data}, status=status.HTTP_200_OK)
-
 
 
 class UnblockUserAPIView(APIView):

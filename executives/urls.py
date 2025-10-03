@@ -43,6 +43,7 @@ urlpatterns = [
     path("executives/status/", ExecutiveStatusAPIView.as_view(), name="executive-status"),
     path("executives/<int:id>/stats/", ExecutiveStatsDetailView.as_view(), name="executive-stats-detail"),
     path("executives-blocked-users/<int:executive_id>/", BlockedUsersListByExecutiveAPIView.as_view(), name="blocked-users-by-executive"),
+    path("executive/blocked-users/", BlockedUsersListAPIView.as_view(), name="blocked-users"),
 
 
 ]
