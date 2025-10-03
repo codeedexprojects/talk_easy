@@ -1,5 +1,8 @@
 from rest_framework import serializers
 from users.models import *
+from executives.models import Language
+from executives.models import ExecutiveProfilePicture
+from django.conf import settings
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -62,7 +65,6 @@ class CareerSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class CarouselImageSerializer(serializers.ModelSerializer):
-    # full_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = CarouselImage
@@ -138,11 +140,10 @@ class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
         return False
 
 
-
-from executives.models import Language
 class Executivelistserializer(serializers.ModelSerializer):
-    languages_known = serializers.SlugRelatedField(many=True,slug_field='name',read_only=True)
+    languages_known = serializers.SlugRelatedField(many=True, slug_field='name', read_only=True)
     is_favourite = serializers.SerializerMethodField()
+    profile_photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
@@ -152,11 +153,25 @@ class Executivelistserializer(serializers.ModelSerializer):
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
-            'on_call', 'password', 'languages_known', 'is_favourite'
+            'on_call', 'languages_known', 'is_favourite',
+            'profile_photo_url'   
         ]
         read_only_fields = ['id', 'created_at', 'last_login', 'stats', 'is_favourite']
 
     def get_is_favourite(self, obj):
-
         user = self.context['request'].user
         return Favourite.objects.filter(user=user, executive=obj).exists()
+
+    def get_profile_photo_url(self, obj):
+        """Return the latest active profile photo of the executive"""
+        request = self.context.get('request')
+        profile_pic = ExecutiveProfilePicture.objects.filter(
+            executive=obj, status="active"
+        ).order_by("-created_at").first()
+
+        if profile_pic and profile_pic.profile_photo:
+            if request:
+                return request.build_absolute_uri(profile_pic.profile_photo.url)
+            return profile_pic.profile_photo.url
+        return None
+
