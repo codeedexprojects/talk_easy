@@ -53,9 +53,14 @@ class ExecutiveStatsSerializer(serializers.ModelSerializer):
         ]
 
 class ExecutiveSerializer(serializers.ModelSerializer):
-    stats = ExecutiveStatsSerializer(read_only=True)
-    password = serializers.CharField(write_only=True, required=True)    
-    languages_known = serializers.SlugRelatedField(many=True,slug_field='name',queryset=Language.objects.all(),required=False)
+    stats = ExecutiveStatsSerializer(required=False)
+    password = serializers.CharField(write_only=True, required=False)    
+    languages_known = serializers.SlugRelatedField(
+        many=True,
+        slug_field='name',
+        queryset=Language.objects.all(),
+        required=False
+    )
 
     class Meta:
         model = Executive
@@ -67,11 +72,13 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
             'on_call', 'password', 'languages_known'
         ]
-        read_only_fields = ['id', 'created_at', 'last_login', 'stats']
+        read_only_fields = ['id', 'created_at', 'last_login']
 
     def create(self, validated_data):
         languages = validated_data.pop("languages_known", [])
         password = validated_data.pop("password")
+        stats_data = validated_data.pop("stats", None)
+
         executive = Executive(**validated_data)
         executive.set_password(password)
         executive.save()
@@ -79,11 +86,15 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         if languages:
             executive.languages_known.set(languages)
 
+        if stats_data:
+            ExecutiveStats.objects.create(executive=executive, **stats_data)
+
         return executive
 
     def update(self, instance, validated_data):
         languages = validated_data.pop("languages_known", None)
         password = validated_data.pop("password", None)
+        stats_data = validated_data.pop("stats", None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -95,7 +106,17 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         if languages is not None:
             instance.languages_known.set(languages)
 
+        if stats_data:
+            stats_instance = getattr(instance, "stats", None)
+            if stats_instance:
+                for attr, value in stats_data.items():
+                    setattr(stats_instance, attr, value)
+                stats_instance.save()
+            else:
+                ExecutiveStats.objects.create(executive=instance, **stats_data)
+
         return instance
+
 
 
 
