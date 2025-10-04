@@ -113,6 +113,7 @@ class UserRechargeView(APIView):
     
 
 class RedemptionOptionListCreateAPIView(APIView):
+    permission_classes=[]
 
     def get(self, request):
         options = RedemptionOption.objects.filter(is_deleted=False)
@@ -169,3 +170,13 @@ class RedemptionOptionDetailAPIView(APIView):
         option.is_deleted = True
         option.save()
         return Response({"detail": "Deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+    
+from executives.authentication import ExecutiveTokenAuthentication
+class RedemptionOptionListViewExecutive(APIView):
+    permission_classes=[IsAuthenticated]
+    authentication_classes=[ExecutiveTokenAuthentication]
+
+    def get(self, request):
+        options = RedemptionOption.objects.filter(is_deleted=False)
+        serializer = RedemptionOptionSerializer(options, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
