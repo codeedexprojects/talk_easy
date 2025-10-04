@@ -1,8 +1,8 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import RechargePlanCatogary, RechargePlan
-from .serializers import RechargePlanCategorySerializer, RechargePlanSerializer
+from .models import *
+from .serializers import *
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -110,3 +110,62 @@ class UserRechargeView(APIView):
             "amount_paid": float(amount_to_pay),
             "current_coin_balance": user.stats.coin_balance
         }, status=status.HTTP_200_OK)
+    
+
+class RedemptionOptionListCreateAPIView(APIView):
+
+    def get(self, request):
+        options = RedemptionOption.objects.filter(is_deleted=False)
+        serializer = RedemptionOptionSerializer(options, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = RedemptionOptionSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class RedemptionOptionDetailAPIView(APIView):
+
+    def get_object(self, pk):
+        try:
+            return RedemptionOption.objects.get(pk=pk, is_deleted=False)
+        except RedemptionOption.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        option = self.get_object(pk)
+        if not option:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = RedemptionOptionSerializer(option)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def put(self, request, pk):
+        option = self.get_object(pk)
+        if not option:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = RedemptionOptionSerializer(option, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, pk):
+        option = self.get_object(pk)
+        if not option:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = RedemptionOptionSerializer(option, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        option = self.get_object(pk)
+        if not option:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        option.is_deleted = True
+        option.save()
+        return Response({"detail": "Deleted successfully"}, status=status.HTTP_204_NO_CONTENT)

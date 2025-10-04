@@ -122,9 +122,6 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         return instance
 
 
-
-
-
 class BlockedUserSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.name", read_only=True)
     user_id = serializers.IntegerField(source="user.id", read_only=True)

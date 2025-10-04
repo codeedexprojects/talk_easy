@@ -15,4 +15,6 @@ urlpatterns = [
     path("recharge-plan-list/", RechargePlansView.as_view(), name="recharge-plans"),
     path("user-recharge/", UserRechargeView.as_view(), name="user-recharge"),
 
+    path("redemption-options/", RedemptionOptionListCreateAPIView.as_view(), name="redemption-option-list-create"),
+    path("redemption-options/<int:pk>/", RedemptionOptionDetailAPIView.as_view(), name="redemption-option-detail"),
 ]

@@ -68,8 +68,6 @@ class ExecutiveStats(models.Model):
     executive = models.OneToOneField(
         Executive, on_delete=models.CASCADE, related_name="stats"
     )
-
-    #Coin related tracking
     coins_per_second = models.FloatField(default=3) #from user 
     amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=0.0) 
     vault_Balance = models.IntegerField(default=0)
@@ -158,3 +156,5 @@ class ExecutiveProfilePicture(models.Model):
     def reject(self):
         self.status = 'rejected'
         self.save()
+
+

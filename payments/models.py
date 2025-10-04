@@ -1,5 +1,6 @@
 from django.db import models
 from decimal import Decimal
+from executives.models import Executive
 # Create your models here.
 
 class RechargePlanCatogary(models.Model):
@@ -58,3 +59,55 @@ class UserRecharge(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.plan.plan_name} ({self.coins_added} coins)"
+
+
+class RedemptionOption(models.Model):
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        unique=True,
+        help_text="Fixed redemption amount available for executives (e.g., 500, 1000)"
+    )
+    is_active = models.BooleanField(default=True, help_text="Is this option available?")
+    is_deleted = models.BooleanField(default=False, help_text="Soft delete flag")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Redeem ₹{self.amount}"
+
+    class Meta:
+        ordering = ["amount"]
+
+
+class ExecutivePayoutRedeem(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("paid", "Paid"),
+    ]
+
+    executive = models.ForeignKey(
+        Executive,
+        on_delete=models.CASCADE,
+        related_name="payout_redeems"
+    )
+    redemption_option = models.ForeignKey(
+        RedemptionOption,
+        on_delete=models.CASCADE,
+        related_name="redeem_requests"
+    )
+    approved_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Final amount approved by admin"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    notes = models.TextField(blank=True, null=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.executive.name} requested {self.redemption_option.amount} ({self.status})"

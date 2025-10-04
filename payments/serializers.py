@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import RechargePlanCatogary, RechargePlan , UserRecharge
+from .models import RechargePlanCatogary, RechargePlan , UserRecharge , RedemptionOption
 from decimal import Decimal
 
 class RechargePlanCategorySerializer(serializers.ModelSerializer):
@@ -50,3 +50,10 @@ class UserRechargeSerializer(serializers.ModelSerializer):
         model = UserRecharge
         fields = ["id", "user", "plan", "coins_added", "amount_paid", "created_at", "is_successful"]
         read_only_fields = ["coins_added", "amount_paid", "created_at"]
+
+
+class RedemptionOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RedemptionOption
+        fields = ["id", "amount", "is_active", "is_deleted", "created_at"]
+        read_only_fields = ["id", "created_at"]
