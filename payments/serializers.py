@@ -94,3 +94,31 @@ class ExecutiveRedeemHistorySerializer(serializers.ModelSerializer):
             "requested_at",
             "processed_at"
         ]
+
+class AdminRedeemManageSerializer(serializers.ModelSerializer):
+    executive_name = serializers.CharField(source="executive.name", read_only=True)
+    redemption_amount = serializers.DecimalField(
+        source="redemption_option.amount",
+        max_digits=12,
+        decimal_places=2,
+        read_only=True
+    )
+
+    class Meta:
+        model = ExecutivePayoutRedeem
+        fields = [
+            "id",
+            "executive",
+            "executive_name",
+            "redemption_option",
+            "redemption_amount",
+            "status",
+            "approved_amount",
+            "notes",
+            "upi_details",
+            "account_number",
+            "ifsc_code",
+            "requested_at",
+            "processed_at"
+        ]
+        read_only_fields = ["id", "executive_name", "redemption_amount", "requested_at", "processed_at"]

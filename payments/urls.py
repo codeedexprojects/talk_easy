@@ -22,4 +22,6 @@ urlpatterns = [
     path("executive/redeem/", ExecutiveRedeemAPIView.as_view(), name="executive-redeem"),
     path("executive/redeem/history/", ExecutiveRedeemHistoryAPIView.as_view(), name="executive-redeem-history"),
 
+    path("admin/redeems/", AdminRedeemListUpdateAPIView.as_view(), name="admin-redeem-list"),  # list
+    path("admin/redeems/<int:pk>/", AdminRedeemListUpdateAPIView.as_view(), name="admin-redeem-update"),  # update
 ]

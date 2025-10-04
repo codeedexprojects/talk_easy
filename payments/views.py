@@ -6,6 +6,8 @@ from .serializers import *
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from executives.authentication import ExecutiveTokenAuthentication
+from django.utils.timezone import now
+from rest_framework.permissions import IsAdminUser
 
 
 #  Category Create & List
@@ -240,3 +242,34 @@ class ExecutiveRedeemHistoryAPIView(APIView):
         serializer = ExecutiveRedeemHistorySerializer(redeems, many=True)
 
         return Response(serializer.data)
+
+
+class AdminRedeemListUpdateAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    # List all redemption requests
+    def get(self, request):
+        redeems = ExecutivePayoutRedeem.objects.all().order_by("-requested_at")
+        serializer = AdminRedeemManageSerializer(redeems, many=True)
+        return Response(serializer.data)
+
+    # Update redemption request (approve/reject/paid)
+    def patch(self, request, pk):
+        try:
+            redeem_request = ExecutivePayoutRedeem.objects.get(pk=pk)
+        except ExecutivePayoutRedeem.DoesNotExist:
+            return Response({"detail": "Redeem request not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AdminRedeemManageSerializer(redeem_request, data=request.data, partial=True)
+        if serializer.is_valid():
+            redeem = serializer.save()
+
+            # If status changed to approved or paid → set processed_at
+            if redeem.status in ["approved", "rejected", "paid"]:
+                redeem.processed_at = now()
+                redeem.save()
+
+            return Response(AdminRedeemManageSerializer(redeem).data)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
