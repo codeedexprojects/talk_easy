@@ -19,5 +19,7 @@ urlpatterns = [
     path("redemption-options/<int:pk>/", RedemptionOptionDetailAPIView.as_view(), name="redemption-option-detail"),
 
     path("redemption-list/", RedemptionOptionListViewExecutive.as_view(), name="redemption-option-list-create"),
+    path("executive/redeem/", ExecutiveRedeemAPIView.as_view(), name="executive-redeem"),
+    path("executive/redeem/history/", ExecutiveRedeemHistoryAPIView.as_view(), name="executive-redeem-history"),
 
 ]

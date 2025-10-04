@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import RechargePlanCatogary, RechargePlan , UserRecharge , RedemptionOption
+from .models import *
 from decimal import Decimal
 
 class RechargePlanCategorySerializer(serializers.ModelSerializer):
@@ -57,3 +57,40 @@ class RedemptionOptionSerializer(serializers.ModelSerializer):
         model = RedemptionOption
         fields = ["id", "amount", "is_active", "is_deleted", "created_at"]
         read_only_fields = ["id", "created_at"]
+
+class ExecutiveRedeemSerializer(serializers.ModelSerializer):
+    redemption_option = serializers.PrimaryKeyRelatedField(
+        queryset=RedemptionOption.objects.filter(is_deleted=False, is_active=True)
+    )
+
+    class Meta:
+        model = ExecutivePayoutRedeem
+        fields = [
+            "redemption_option", "upi_details", "account_number", "ifsc_code"
+        ]
+
+from rest_framework import serializers
+from .models import ExecutivePayoutRedeem
+
+class ExecutiveRedeemHistorySerializer(serializers.ModelSerializer):
+    redemption_amount = serializers.DecimalField(
+        source="redemption_option.amount", 
+        max_digits=12, 
+        decimal_places=2, 
+        read_only=True
+    )
+
+    class Meta:
+        model = ExecutivePayoutRedeem
+        fields = [
+            "id",
+            "redemption_amount",
+            "status",
+            "approved_amount",
+            "notes",
+            "upi_details",
+            "account_number",
+            "ifsc_code",
+            "requested_at",
+            "processed_at"
+        ]

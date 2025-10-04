@@ -108,6 +108,9 @@ class ExecutivePayoutRedeem(models.Model):
     notes = models.TextField(blank=True, null=True)
     requested_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
+    upi_details = models.CharField(max_length=255, blank=True, null=True, help_text="UPI details for payment")
+    account_number = models.CharField(max_length=255, blank=True, null=True, help_text="Account number for payment")
+    ifsc_code = models.CharField(max_length=255, blank=True, null=True, help_text="IFSC code for payment")
 
     def __str__(self):
         return f"{self.executive.name} requested {self.redemption_option.amount} ({self.status})"
