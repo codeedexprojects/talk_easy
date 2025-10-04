@@ -94,7 +94,11 @@ class ExecutiveSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         languages = validated_data.pop("languages_known", None)
         password = validated_data.pop("password", None)
-        stats_data = validated_data.pop("stats", None)
+        stats_data = validated_data.pop("stats", {})
+
+        stats_fields = {f.name for f in ExecutiveStats._meta.get_fields() if f.name != "id"}
+        flat_stats = {k: validated_data.pop(k) for k in list(validated_data.keys()) if k in stats_fields}
+        stats_data.update(flat_stats)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -116,6 +120,7 @@ class ExecutiveSerializer(serializers.ModelSerializer):
                 ExecutiveStats.objects.create(executive=instance, **stats_data)
 
         return instance
+
 
 
 
