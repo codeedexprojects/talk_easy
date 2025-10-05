@@ -147,8 +147,6 @@ class ExecutiveStats(models.Model):
         )
 
 
-
-
 class ExecutiveToken(models.Model):
     executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE)
     access_token = models.CharField(max_length=255, unique=True,default='000') 

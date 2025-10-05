@@ -222,7 +222,7 @@ class ExecutiveRedeemAPIView(APIView):
                 "request_id": redeem_request.id,
                 "amount": redeem_amount,
                 "status": redeem_request.status,
-                "executiveId":redeem_request.executive
+                "executiveId": redeem_request.executive.id
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
