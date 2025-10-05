@@ -66,10 +66,10 @@ class Executive(AbstractBaseUser, PermissionsMixin):
 
 class ExecutiveStats(models.Model):
     executive = models.OneToOneField(
-        Executive, on_delete=models.CASCADE, related_name="stats"
+        "Executive", on_delete=models.CASCADE, related_name="stats"
     )
-    coins_per_second = models.FloatField(default=3) #from user 
-    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=0.0) 
+    coins_per_second = models.FloatField(default=3)  # from user
+    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     vault_Balance = models.IntegerField(default=0)
 
     # Call tracking
@@ -79,22 +79,40 @@ class ExecutiveStats(models.Model):
     total_missed_calls = models.PositiveIntegerField(default=0)
 
     total_earnings = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.00,
-        help_text="Total lifetime earnings of executive"
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text="Total lifetime earnings of executive",
     )
     earnings_today = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.00,
-        help_text="Earnings for today"
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text="Earnings for today",
     )
-    pending_payout = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.00,
-        help_text="Balance to be paid to executive"
-    )
-
     last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Stats for {self.executive.name}"
+
+    @property
+    def current_day_earnings(self):
+        now = timezone.now()
+        if self.last_updated.date() == now.date():
+            return self.earnings_today
+        return 0.00
+
+    def update_earnings(self, amount):
+        now = timezone.now()
+
+        if self.last_updated.date() != now.date():
+            self.earnings_today = 0.00
+
+        self.earnings_today += amount
+        self.total_earnings += amount
+        self.pending_payout += amount
+        self.last_updated = now
+        self.save(update_fields=["earnings_today", "total_earnings", "pending_payout", "last_updated"])
 
 
 
