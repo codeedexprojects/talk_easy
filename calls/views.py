@@ -71,13 +71,13 @@ class CallInitiateView(APIView):
                 user_stats = user.stats
             except UserStats.DoesNotExist:
                 return Response(
-                    {"detail": "User stats not found"},
+                    {"message": "User stats not found"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             if user_stats.coin_balance < 180:
                 return Response(
-                    {"detail": "At least 180 coins required to start a call"},
+                    {"message": "At least 180 coins required to start a call"},
                     status=status.HTTP_402_PAYMENT_REQUIRED
                 )
 
@@ -133,13 +133,13 @@ class CallInitiateView(APIView):
 
     def validate_executive(self, executive):
         if not executive.is_online:
-            return Response({"detail": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"message": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
         if executive.is_banned:
-            return Response({"detail": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"message": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
         if executive.is_suspended:
-            return Response({"detail": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"message": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
         if executive.on_call:
-            return Response({"detail": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"message": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
         return None
 
     def send_incoming_call_notification(self, executive_id, call_history, caller):
@@ -200,7 +200,7 @@ class MarkJoinedView(APIView):
         try:
             call = AgoraCallHistory.objects.get(channel_name=channel_name, is_active=True)
         except AgoraCallHistory.DoesNotExist:
-            return Response({"detail": "Active call not found"}, status=404)
+            return Response({"message": "Active call not found"}, status=404)
         call.mark_joined()
         return Response({"ok": True})
 
@@ -473,7 +473,7 @@ class RecentExecutiveCallsAPIView(APIView):
         pending_calls = AgoraCallHistory.objects.filter(
             executive=executive,
             status="pending"
-        ).order_by("-start_time")[:20]
+        ).order_by("-start_time").first()
 
         serializer = CallHistorySerializer(pending_calls, many=True)
         return Response({
