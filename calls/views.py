@@ -478,7 +478,6 @@ class RecentExecutiveCallsAPIView(APIView):
         serializer = CallHistorySerializer(pending_calls, many=True)
         return Response({
             "executive": executive.name,
-            "total_pending_calls": pending_calls.count(),
             "pending_calls": serializer.data
         }, status=status.HTTP_200_OK)
 
