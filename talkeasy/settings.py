@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'executives',
     'channels',
     'calls',
-    'payments'
+    'payments',
+    'rest_framework',
 ]
 
 MIDDLEWARE = [
@@ -57,6 +58,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'accounts.middleware.JWTSessionTrackingMiddleware',
 ]
 
 
@@ -206,6 +208,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'users.authentication.UserProfileJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+
     ),
 }
 
@@ -227,7 +230,16 @@ SIMPLE_JWT = {
 }
 
 #agora 
-AGORA_APP_ID = '9019fa33fc6d4654848121f4b88b346c'
-AGORA_APP_CERTIFICATE = 'e2f0a6a085d34973ad08c7cfa785796d'
-AGORA_TOKEN_TTL_SECONDS = 3600  # 1 hour
+AGORA_APP_ID = 'b5357801b5334948b0ad366baf339701'
+AGORA_APP_CERTIFICATE = 'ae78b88d64d043c8beb7c5dbe289a520'
+AGORA_TOKEN_TTL_SECONDS = 3600  
 COINS_PER_SECOND = 3
+
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
+
+

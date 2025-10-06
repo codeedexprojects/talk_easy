@@ -11,4 +11,17 @@ urlpatterns = [
     path('plans/', RechargePlanListCreateAPIView.as_view(), name='plan-list-create'),
     path('plans/<int:pk>/', RechargePlanDetailAPIView.as_view(), name='plan-detail'),
     path('plans/<int:pk>/delete/', RechargePlanDeleteAPIView.as_view(), name='plan-delete'),
+
+    path("recharge-plan-list/", RechargePlansView.as_view(), name="recharge-plans"),
+    path("user-recharge/", UserRechargeView.as_view(), name="user-recharge"),
+
+    path("redemption-options/", RedemptionOptionListCreateAPIView.as_view(), name="redemption-option-list-create"),
+    path("redemption-options/<int:pk>/", RedemptionOptionDetailAPIView.as_view(), name="redemption-option-detail"),
+
+    path("redemption-list/", RedemptionOptionListViewExecutive.as_view(), name="redemption-option-list-create"),
+    path("executive/redeem/", ExecutiveRedeemAPIView.as_view(), name="executive-redeem"),
+    path("executive/redeem/history/", ExecutiveRedeemHistoryAPIView.as_view(), name="executive-redeem-history"),
+
+    path("admin/redeems/", AdminRedeemListUpdateAPIView.as_view(), name="admin-redeem-list"),  # list
+    path("admin/redeems/<int:pk>/", AdminRedeemListUpdateAPIView.as_view(), name="admin-redeem-update"),  # update
 ]

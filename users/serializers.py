@@ -1,11 +1,16 @@
 from rest_framework import serializers
 from users.models import *
+from executives.models import Language
+from executives.models import ExecutiveProfilePicture
+from django.conf import settings
+from django.db.models import Avg
+
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = [
-            'id', 'user_id', 'name', 'email', 'mobile_number', 'gender', 'coin_balance', 
+            'id', 'user_id', 'name', 'email', 'mobile_number', 'gender', 
             'is_verified', 'is_banned', 'is_suspended', 'created_at','is_active'
         ]
 
@@ -45,12 +50,16 @@ class ExecutiveFavoSerializer(serializers.ModelSerializer):
 class RatingSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     username = serializers.CharField(source='user.name', read_only=True)
-    executive_id = serializers.IntegerField(source='executive.id', read_only=True)
+    UID = serializers.CharField(source='user.user_id', read_only=True)
+    id = serializers.IntegerField(source='executive.id', read_only=True)
     executive_name = serializers.CharField(source='executive.name', read_only=True)
+    EXID = serializers.CharField(source='executive.executive_id', read_only=True)   
+
+
 
     class Meta:
         model = Rating
-        fields = ['user_id', 'username', 'executive_id', 'executive_name', 'rating', 'comment', 'created_at']
+        fields = ['user_id', 'username','UID', 'id', 'executive_name','EXID', 'rating', 'comment', 'created_at']
 
 class CareerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -58,11 +67,10 @@ class CareerSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class CarouselImageSerializer(serializers.ModelSerializer):
-    # full_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = CarouselImage
-        fields = ['id', 'title', 'image', 'created_at']
+        fields = ['id', 'title', 'image', 'created_at','for_executive','for_user']
 
     # def get_full_image_url(self, obj):
     #     request = self.context.get('request')
@@ -100,7 +108,7 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'id', 'user_id', 'name', 'email', 'mobile_number', 'gender',
-            'coin_balance', 'is_verified', 'is_banned', 'is_suspended',
+             'is_verified', 'is_banned', 'is_suspended',
             'created_at', 'is_active', 'stats'
         ]
 
@@ -114,3 +122,64 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
             "total_call_seconds_today": 0,
             "last_updated": None
         }
+
+
+class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
+    is_favourite = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Executive
+        fields = [
+            'id', 'executive_id','name',
+            'status','is_offline', 'is_online', 'on_call',
+            'is_favourite',  
+        ]
+
+    def get_is_favourite(self, obj):
+        request = self.context.get('request', None)
+        if request and request.user.is_authenticated:
+            return Favourite.objects.filter(user=request.user, executive=obj).exists()
+        return False
+
+
+class Executivelistserializer(serializers.ModelSerializer):
+    languages_known = serializers.SlugRelatedField(many=True, slug_field='name', read_only=True)
+    is_favourite = serializers.SerializerMethodField()
+    profile_photo_url = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Executive
+        fields = [
+            'id', 'executive_id', 'mobile_number', 'name', 'age', 'email_id', 'gender',
+            'profession', 'skills', 'place', 'education_qualification', 'status',
+            'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
+            'created_at', 'device_id', 'last_login', 'manager_executive',
+            'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
+            'on_call', 'languages_known', 'is_favourite',
+            'profile_photo_url','average_rating'
+        ]
+        read_only_fields = ['id', 'created_at', 'last_login', 'stats', 'is_favourite']
+
+    def get_is_favourite(self, obj):
+        user = self.context['request'].user
+        return Favourite.objects.filter(user=user, executive=obj).exists()
+
+    def get_profile_photo_url(self, obj):
+        request = self.context.get('request')
+
+        # Get latest uploaded profile picture regardless of status
+        profile_pic = ExecutiveProfilePicture.objects.filter(
+            executive=obj
+        ).order_by("-created_at").first()
+
+        if profile_pic and profile_pic.profile_photo:
+            url = profile_pic.profile_photo.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return None
+    
+    def get_average_rating(self, obj):
+            avg_rating = Rating.objects.filter(executive=obj).aggregate(Avg("rating"))["rating__avg"]
+            return round(avg_rating, 1) if avg_rating else None

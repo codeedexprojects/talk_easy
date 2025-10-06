@@ -1,10 +1,10 @@
-from celery import shared_task
+# from celery import shared_task
 from django.utils import timezone
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from .models import AgoraCallHistory
 
-@shared_task
+# @shared_task
 def mark_call_as_missed(call_id):
     """Mark call as missed after timeout"""
     try:
