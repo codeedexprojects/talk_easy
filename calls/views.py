@@ -609,3 +609,39 @@ class AdminExecutiveCallHistoryAPIView(APIView):
         serializer = CallHistorySerializer(paginated_queryset, many=True)
 
         return paginator.get_paginated_response(serializer.data)
+    
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+from rest_framework import status
+from .models import AgoraCallHistory
+from users.models import UserProfile
+from .serializers import CallHistorySerializer
+from .pagination import CustomCallPagination  # adjust import path if needed
+
+
+class AdminUserCallHistoryAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    pagination_class = CustomCallPagination
+
+    def get(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        status_filter = request.query_params.get("status")
+        queryset = AgoraCallHistory.objects.filter(user=user).order_by("-start_time")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        paginator = self.pagination_class()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = CallHistorySerializer(paginated_queryset, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
