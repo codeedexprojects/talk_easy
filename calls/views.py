@@ -475,7 +475,7 @@ class RecentExecutiveCallsAPIView(APIView):
             status="pending"
         ).order_by("-start_time").first()
 
-        serializer = CallHistorySerializer(pending_calls, many=True)
+        serializer = CallHistorySerializer(pending_calls)
         return Response({
             "executive": executive.name,
             "pending_calls": serializer.data
