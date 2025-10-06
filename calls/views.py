@@ -582,3 +582,30 @@ class ExecutiveEndCallView(APIView):
                     )
         except Exception as e:
             print(f"WebSocket notification failed: {e}")
+
+
+class AdminExecutiveCallHistoryAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]  
+    pagination_class = CustomCallPagination
+
+    def get(self, request, executive_id):
+        try:
+            executive = Executive.objects.get(id=executive_id)
+        except Executive.DoesNotExist:
+            return Response(
+                {"error": "Executive not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        status_filter = request.query_params.get("status")
+        queryset = AgoraCallHistory.objects.filter(executive=executive).order_by("-start_time")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        paginator = self.pagination_class()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = CallHistorySerializer(paginated_queryset, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
