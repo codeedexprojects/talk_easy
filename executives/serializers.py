@@ -42,18 +42,25 @@ class ExecutiveOTPVerifySerializer(serializers.Serializer):
 
 
 class ExecutiveStatsSerializer(serializers.ModelSerializer):
+    executive_name = serializers.CharField(source="executive.name", read_only=True)
+
     class Meta:
         model = ExecutiveStats
-        fields = ['executive',
+        fields = ['executive_name','executive',
             'coins_per_second', 'amount_per_min', 'total_on_duty_seconds', 
             'total_talk_seconds_today', 'total_picked_calls', 'total_missed_calls', 'vault_Balance','total_earnings'
             ,'earnings_today','pending_payout','last_updated'
         ]
 
 class ExecutiveSerializer(serializers.ModelSerializer):
-    stats = ExecutiveStatsSerializer(read_only=True)
-    password = serializers.CharField(write_only=True, required=True)    
-    languages_known = serializers.SlugRelatedField(many=True,slug_field='name',queryset=Language.objects.all(),required=False)
+    stats = ExecutiveStatsSerializer(required=False)
+    password = serializers.CharField(write_only=True, required=False)    
+    languages_known = serializers.SlugRelatedField(
+        many=True,
+        slug_field='name',
+        queryset=Language.objects.all(),
+        required=False
+    )
 
     class Meta:
         model = Executive
@@ -65,11 +72,13 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
             'on_call', 'password', 'languages_known'
         ]
-        read_only_fields = ['id', 'created_at', 'last_login', 'stats']
+        read_only_fields = ['id', 'created_at', 'last_login']
 
     def create(self, validated_data):
         languages = validated_data.pop("languages_known", [])
         password = validated_data.pop("password")
+        stats_data = validated_data.pop("stats", None)
+
         executive = Executive(**validated_data)
         executive.set_password(password)
         executive.save()
@@ -77,11 +86,19 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         if languages:
             executive.languages_known.set(languages)
 
+        if stats_data:
+            ExecutiveStats.objects.create(executive=executive, **stats_data)
+
         return executive
 
     def update(self, instance, validated_data):
         languages = validated_data.pop("languages_known", None)
         password = validated_data.pop("password", None)
+        stats_data = validated_data.pop("stats", {})
+
+        stats_fields = {f.name for f in ExecutiveStats._meta.get_fields() if f.name != "id"}
+        flat_stats = {k: validated_data.pop(k) for k in list(validated_data.keys()) if k in stats_fields}
+        stats_data.update(flat_stats)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -93,14 +110,25 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         if languages is not None:
             instance.languages_known.set(languages)
 
+        if stats_data:
+            stats_instance = getattr(instance, "stats", None)
+            if stats_instance:
+                for attr, value in stats_data.items():
+                    setattr(stats_instance, attr, value)
+                stats_instance.save()
+            else:
+                ExecutiveStats.objects.create(executive=instance, **stats_data)
+
         return instance
 
 
+class BlockedUserSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
 
-class BlockUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = BlockedusersByExecutive
-        fields = ['user', 'reason','is_blocked','executive']
+        fields = ["id", "user_id", "user_name", "reason", "is_blocked", "blocked_at"]
 
 class ExecutiveStatusUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -123,8 +151,7 @@ class ExecutiveProfilePictureSerializer(serializers.ModelSerializer):
             'id',
             'executive',
             'executive_name',
-            'profile_photo',
-            'profile_photo_url',
+            'profile_photo_url',   # keep only absolute url
             'status',
             'status_display',
             'created_at',
@@ -133,7 +160,6 @@ class ExecutiveProfilePictureSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'executive']
     
     def get_profile_photo_url(self, obj):
-
         if obj.profile_photo:
             request = self.context.get('request')
             if request is not None:
@@ -150,8 +176,8 @@ class ExecutiveProfilePictureSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Invalid file format. Please upload JPG, JPEG, PNG, or GIF files only."
                 )
-        
         return value
+
 
 
 class ExecutiveProfilePictureUploadSerializer(serializers.Serializer):

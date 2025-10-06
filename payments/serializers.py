@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import RechargePlanCatogary, RechargePlan , UserRecharge
+from .models import *
 from decimal import Decimal
 
 class RechargePlanCategorySerializer(serializers.ModelSerializer):
@@ -50,3 +50,75 @@ class UserRechargeSerializer(serializers.ModelSerializer):
         model = UserRecharge
         fields = ["id", "user", "plan", "coins_added", "amount_paid", "created_at", "is_successful"]
         read_only_fields = ["coins_added", "amount_paid", "created_at"]
+
+
+class RedemptionOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RedemptionOption
+        fields = ["id", "amount", "is_active", "is_deleted", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+class ExecutiveRedeemSerializer(serializers.ModelSerializer):
+    redemption_option = serializers.PrimaryKeyRelatedField(
+        queryset=RedemptionOption.objects.filter(is_deleted=False, is_active=True)
+    )
+
+    class Meta:
+        model = ExecutivePayoutRedeem
+        fields = [
+            "redemption_option", "upi_details", "account_number", "ifsc_code"
+        ]
+
+from rest_framework import serializers
+from .models import ExecutivePayoutRedeem
+
+class ExecutiveRedeemHistorySerializer(serializers.ModelSerializer):
+    redemption_amount = serializers.DecimalField(
+        source="redemption_option.amount", 
+        max_digits=12, 
+        decimal_places=2, 
+        read_only=True
+    )
+
+    class Meta:
+        model = ExecutivePayoutRedeem
+        fields = [
+            "id",
+            "redemption_amount",
+            "status",
+            "approved_amount",
+            "notes",
+            "upi_details",
+            "account_number",
+            "ifsc_code",
+            "requested_at",
+            "processed_at"
+        ]
+
+class AdminRedeemManageSerializer(serializers.ModelSerializer):
+    executive_name = serializers.CharField(source="executive.name", read_only=True)
+    redemption_amount = serializers.DecimalField(
+        source="redemption_option.amount",
+        max_digits=12,
+        decimal_places=2,
+        read_only=True
+    )
+
+    class Meta:
+        model = ExecutivePayoutRedeem
+        fields = [
+            "id",
+            "executive",
+            "executive_name",
+            "redemption_option",
+            "redemption_amount",
+            "status",
+            "approved_amount",
+            "notes",
+            "upi_details",
+            "account_number",
+            "ifsc_code",
+            "requested_at",
+            "processed_at"
+        ]
+        read_only_fields = ["id", "executive_name", "redemption_amount", "requested_at", "processed_at"]

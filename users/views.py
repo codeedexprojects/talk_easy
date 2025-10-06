@@ -5,7 +5,7 @@ from rest_framework import status
 from users.authentication import UserProfileJWTAuthentication
 from users.models import  ReferralCode, ReferralHistory, DeletedUser,UserProfile
 from executives.utils import send_otp
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated,AllowAny
 from users.serializers import *
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -275,14 +275,18 @@ class UserCoinBalanceView(APIView):
 
     def get(self, request):
         user = request.user
-        coin_balance = getattr(user, 'coin_balance', None)
-        if coin_balance is None:
-            return Response({"message": "Coin balance not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not hasattr(user, "stats"):
+            return Response(
+                {"message": "User stats not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         return Response({
             "user_id": user.id,
-            "coin_balance": coin_balance
+            "coin_balance": user.stats.coin_balance
         }, status=status.HTTP_200_OK)
+
 
 
 from executives.models import *
@@ -300,12 +304,13 @@ class ExecutiveListAPIView(APIView):
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(executives, request, view=self)
-        serializer = ExecutiveSerializer(page, many=True)
+
+        serializer = Executivelistserializer(page, many=True, context={'request': request})
 
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
-        serializer = ExecutiveSerializer(data=request.data)
+        serializer = Executivelistserializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             channel_layer = get_channel_layer()
@@ -317,6 +322,7 @@ class ExecutiveListAPIView(APIView):
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -342,40 +348,6 @@ class UpdateUserStatusAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 from django.shortcuts import get_object_or_404
-
-class FavouriteExecutiveView(APIView):
- 
-    permission_classes = [IsAuthenticated]  
-
-    def get(self, request, user_id, *args, **kwargs):
-        user = get_object_or_404(UserProfile, id=user_id)
-        favourites = Favourite.objects.filter(user=user).select_related('executive')
-        executives = [fav.executive for fav in favourites]
-        serializer = ExecutiveFavoSerializer    (executives, many=True)
-        return Response({"user_id": user.id, "favourites": serializer.data}, status=status.HTTP_200_OK)
-
-    def post(self, request, user_id, executive_id, *args, **kwargs):
-        user = get_object_or_404(UserProfile, id=user_id)
-        executive = get_object_or_404(Executive, id=executive_id)
-
-        favourite, created = Favourite.objects.get_or_create(user=user, executive=executive)
-        if not created:
-            favourite.delete()
-            return Response({"message": "Executive removed from favourites."}, status=status.HTTP_200_OK)
-
-        return Response({"message": "Executive added to favourites."}, status=status.HTTP_201_CREATED)
-
-    def delete(self, request, user_id, executive_id, *args, **kwargs):
-        user = get_object_or_404(UserProfile, id=user_id)
-        executive = get_object_or_404(Executive, id=executive_id)
-
-        favourite = Favourite.objects.filter(user=user, executive=executive).first()
-        if not favourite:
-            return Response({"message": "This executive is not in your favourites."}, status=status.HTTP_404_NOT_FOUND)
-
-        favourite.delete()
-        return Response({"message": "Executive removed from favourites successfully."}, status=status.HTTP_200_OK)
-    
 
 class RatingExecutiveView(APIView):
     permission_classes = []
@@ -478,6 +450,7 @@ class CareerDetailView(APIView):
         return Response({"message": "Career entry deleted successfully."}, status=status.HTTP_200_OK)
     
 class CarouselImageListCreateView(APIView):
+    permission_classes=[]
     def get(self, request):
         images = CarouselImage.objects.all()
         serializer = CarouselImageSerializer(images, many=True, context={'request': request})
@@ -491,6 +464,7 @@ class CarouselImageListCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class CarouselImageDetailView(APIView):
+    permission_classes=[]
     def get(self, request, image_id):
         try:
             image = CarouselImage.objects.get(id=image_id)
@@ -530,16 +504,27 @@ class ReferralHistoryListView(APIView):
 
 from rest_framework.generics import ListAPIView,RetrieveAPIView
 from accounts.pagination import CustomUserPagination
+from rest_framework import generics
 
 class UserProfileListView(ListAPIView):
     queryset = UserProfile.objects.filter(is_deleted=False).order_by('-created_at')
     serializer_class = UserProfileSerializerAdmin
     pagination_class = CustomUserPagination
 
-class UserDetailView(RetrieveAPIView):
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializerAdmin
-    permission_classes = [] 
+    permission_classes = [IsAuthenticated] 
+
+    def get_object(self):
+        user_id = self.kwargs.get("user_id")
+        return get_object_or_404(UserProfile, id=user_id)
+    
+class UserDetailViewAdmin(generics.RetrieveUpdateDestroyAPIView):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserProfileSerializerAdmin
+    permission_classes = [IsAdminUser]
+    authentication_classes =[JWTAuthentication] 
 
     def get_object(self):
         user_id = self.kwargs.get("user_id")
@@ -549,7 +534,8 @@ from rest_framework.permissions import IsAdminUser
 from django.db.models import Q
 
 class UserSoftDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
     
     def delete(self, request, user_id=None):
         try:
@@ -596,6 +582,41 @@ class UserSoftDeleteView(APIView):
                 {"error": f"An error occurred: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+class DeleteUserAccountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id, is_deleted=False)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {"error": "User not found or already deleted"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if request.user.id != user.id:
+            return Response(
+                {"error": "Permission denied"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        user.is_deleted = True
+        user.is_active = False
+        user.save(update_fields=["is_deleted", "is_active"])
+
+        try:
+            user_stats = user.stats
+            user_stats.coin_balance = 0
+            user_stats.save(update_fields=["coin_balance"])
+        except UserStats.DoesNotExist:
+            pass
+
+        return Response(
+            {"message": "User account deleted successfully"},
+            status=status.HTTP_200_OK
+        )
+
 
 
 class UserAccountRestoreView(APIView):
@@ -794,3 +815,101 @@ class UserAccountStatusView(APIView):
                 {"error": "User not found"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+class FavoriteExecutiveView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        favorites = Favourite.objects.filter(user=request.user).select_related('executive')
+        favorite_executives = [fav.executive for fav in favorites]
+
+        serializer = ExecutiveFavoriteSerializer(
+            favorite_executives,
+            many=True,
+            context={'request': request}
+        )
+        return Response({
+            'success': True,
+            'count': len(favorite_executives),
+            'results': serializer.data
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+
+        exec_id = request.data.get('id')
+        action = request.data.get('action', 'add')
+
+        if not exec_id:
+            return Response({'success': False, 'error': 'id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if action not in ['add', 'remove']:
+            return Response({'success': False, 'error': 'action must be either "add" or "remove"'}, status=status.HTTP_400_BAD_REQUEST)
+
+        executive = get_object_or_404(Executive, id=exec_id, status='active')
+
+        if action == 'add':
+            favourite, created = Favourite.objects.get_or_create(user=request.user, executive=executive)
+            if not created:
+                return Response({'success': False, 'message': 'Executive is already in favorites'}, status=status.HTTP_400_BAD_REQUEST)
+
+            serializer = ExecutiveFavoriteSerializer(executive, context={'request': request})
+            return Response({'success': True, 'message': 'Executive added to favorites successfully', 'data': serializer.data}, status=status.HTTP_200_OK)
+
+        else:  # remove
+            deleted, _ = Favourite.objects.filter(user=request.user, executive=executive).delete()
+            if not deleted:
+                return Response({'success': False, 'message': 'Executive is not in favorites'}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({'success': True, 'message': 'Executive removed from favorites successfully'}, status=status.HTTP_200_OK)
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+
+class ExecutiveRatingsAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]  
+
+    def get(self, request, executive_id):
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        ratings = Rating.objects.filter(executive=executive).order_by("-created_at")
+        serializer = RatingSerializer(ratings, many=True)
+
+        return Response({
+            "executive": executive.name,
+            "total_ratings": ratings.count(),
+            "average_rating": ratings.aggregate(avg=models.Avg("rating"))["avg"] or 0,
+            "ratings": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+
+
+class CarouselImageListAPIView(APIView):
+    permission_classes=[AllowAny]
+    def get(self, request):
+        user_type = request.query_params.get("type")
+
+        if user_type == "user":
+            images = CarouselImage.objects.filter(for_user=True).order_by("-created_at")
+        elif user_type == "executive":
+            images = CarouselImage.objects.filter(for_executive=True).order_by("-created_at")
+        else:
+            return Response(
+                {"error": "Please provide type=user or type=executive"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        data = [
+            {
+                "id": img.id,
+                "title": img.title,
+                "image": request.build_absolute_uri(img.image.url),
+                "created_at": img.created_at,
+            }
+            for img in images
+        ]
+        return Response({"carousel_images": data}, status=status.HTTP_200_OK)

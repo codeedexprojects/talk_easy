@@ -26,6 +26,10 @@ class LanguageListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
 
+class LanguageListView(generics.ListAPIView):
+    queryset = Language.objects.all()
+    serializer_class = LanguageSerializer
+    permission_classes = []
 
 class LanguageDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Language.objects.all()
@@ -51,6 +55,8 @@ def generate_executive_id():
     return f"TEY{str(number).zfill(4)}"  # TEY00001
 
 
+from rest_framework.exceptions import ValidationError
+
 class RegisterExecutiveView(generics.CreateAPIView):
     permission_classes = []
     queryset = Executive.objects.all()
@@ -58,22 +64,35 @@ class RegisterExecutiveView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         data = request.data.copy()
-        
         data['executive_id'] = generate_executive_id()
 
         serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        executive = serializer.save()
+        try:
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as e:
+            error_messages = []
+            for field, messages in e.detail.items():
+                error_messages.append(f"{' '.join(messages)}")
 
+            return Response(
+                {
+                    "message": " ".join(error_messages)
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        executive = serializer.save()
         ExecutiveStats.objects.create(executive=executive)
 
         return Response(
             {
-                "message": "Executive registered successfully",
+                "message": "Registration completed, the account will be verified within 24 hours.",
                 "executive": ExecutiveSerializer(executive).data
             },
             status=status.HTTP_201_CREATED
         )
+
+
 
 from django.contrib.auth.hashers import check_password
 from django.core.cache import cache
@@ -126,7 +145,8 @@ class ExecutiveLoginView(APIView):
 
         return Response({
             "message": "Password verified. OTP sent to your mobile. Please verify to complete login.",
-            "status": True
+            "status": True,
+            "otp":executive.otp
         }, status=status.HTTP_200_OK)
 
 
@@ -170,26 +190,20 @@ class ExecutiveVerifyOTPView(APIView):
 from rest_framework.permissions import IsAuthenticated
 
 class ExecutiveLogoutView(APIView):
-    permission_classes = []
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, executive_id):
-        refresh_token = request.data.get("refresh_token")
+        updated = Executive.objects.filter(id=executive_id).update(
+            online=False, 
+            is_logged_out=True
+        )
 
-        if not refresh_token:
-            return Response({"message": "refresh_token is required."}, status=400)
-
-        try:
-            token_obj = ExecutiveToken.objects.get(refresh_token=refresh_token, executive_id=executive_id)
-            token_obj.revoked = True
-            token_obj.revoked_at = timezone.now()
-            token_obj.save()
-        except ExecutiveToken.DoesNotExist:
-            return Response({"message": "Token not found or already revoked."}, status=404)
-
-        # Update executive status if needed
-        Executive.objects.filter(id=executive_id).update(online=False, is_logged_out=True)
+        if updated == 0:
+            return Response({"message": "Executive not found."}, status=404)
 
         return Response({"message": "Logout successful."}, status=200)
+
 
 from django.shortcuts import get_object_or_404
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -217,7 +231,17 @@ class ExecutiveDetailAPIView(APIView):
     
 
 class ExecutiveUpdateByIDAPIView(APIView):
-    permission_classes = [IsAuthenticated] 
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveSerializer(executive)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request, id):
         return self.update_executive(request, id)
@@ -237,9 +261,24 @@ class ExecutiveUpdateByIDAPIView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     
 class AdminUpdateExecutiveAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request, id):
+        user = request.user
+        if not getattr(user, 'is_staff', False) and not getattr(user, 'is_superuser', False):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExecutiveSerializer(executive)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request, id):
         return self.update_executive(request, id)
@@ -261,8 +300,9 @@ class AdminUpdateExecutiveAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
-        
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     
 from users.models import UserProfile
 
@@ -276,7 +316,7 @@ class BlockUserAPIView(APIView):
         try:
             user = UserProfile.objects.get(id=user_id)
         except UserProfile.DoesNotExist:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         obj, created = BlockedusersByExecutive.objects.update_or_create(
             user=user,
@@ -284,9 +324,33 @@ class BlockUserAPIView(APIView):
             defaults={'is_blocked': True, 'reason': 'Blocked by executive'}
         )
         return Response(
-            {"detail": f"User {user_id} blocked by Executive {executive.executive_id} successfully.", "status": True},
+            {"message": f"User {user_id} blocked by Executive {executive.executive_id} successfully.", "status": True},
             status=status.HTTP_200_OK
         )
+    
+class BlockedUsersListAPIView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        executive = request.user  
+
+        blocked_users = BlockedusersByExecutive.objects.filter(
+            executive=executive,
+            is_blocked=True
+        ).select_related("user")
+
+        data = [
+            {
+                "user_id": obj.user.id,
+                "username": obj.user.user_id,
+                "reason": obj.reason,
+                "blocked_at": obj.blocked_at,
+            }
+            for obj in blocked_users
+        ]
+
+        return Response({"blocked_users": data}, status=status.HTTP_200_OK)
 
 
 class UnblockUserAPIView(APIView):
@@ -301,12 +365,12 @@ class UnblockUserAPIView(APIView):
             blocked_entry.is_blocked = False
             blocked_entry.save(update_fields=['is_blocked'])
             return Response(
-                {"detail": f"User {user_id} unblocked by Executive {executive.executive_id} successfully.", "status": True},
+                {"message": f"User {user_id} unblocked by Executive {executive.executive_id} successfully.", "status": True},
                 status=status.HTTP_200_OK
             )
         except BlockedusersByExecutive.DoesNotExist:
             return Response(
-                {"detail": "This user is not blocked by you.", "status": False},
+                {"message": "This user is not blocked by you.", "status": False},
                 status=status.HTTP_404_NOT_FOUND
             )
         
@@ -380,6 +444,7 @@ class ExecutiveSuspendToggleView(APIView):
         )
     
 class ExecutiveProfilePictureUploadView(APIView):
+    authentication_classes = [ExecutiveTokenAuthentication] 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
@@ -388,64 +453,57 @@ class ExecutiveProfilePictureUploadView(APIView):
             if executive_id:
                 executive = get_object_or_404(Executive, id=executive_id)
             else:
-                executive = get_object_or_404(Executive, user=request.user)  
-            
+                executive = get_object_or_404(Executive, id=request.user.id)
+
             profile_picture, created = ExecutiveProfilePicture.objects.get_or_create(
                 executive=executive,
                 defaults={'status': 'pending'}
             )
-            
+
             if not created:
-                profile_picture.status = 'pending'            
+                profile_picture.status = 'pending'
+
             if 'profile_photo' not in request.FILES:
                 return Response(
-                    {"error": "No profile photo provided"}, 
+                    {"error": "No profile photo provided"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
+
             profile_picture.profile_photo = request.FILES['profile_photo']
             profile_picture.save()
-            
-            serializer = ExecutiveProfilePictureSerializer(profile_picture)
-            
+
+            serializer = ExecutiveProfilePictureSerializer(profile_picture, context={"request": request})
+
             return Response({
                 "message": "Profile picture uploaded successfully. Status: Pending approval.",
                 "data": serializer.data
             }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-            
+
         except Executive.DoesNotExist:
-            return Response(
-                {"error": "Executive not found"}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            return Response(
-                {"error": f"An error occurred: {str(e)}"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"error": f"An error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def get(self, request, executive_id=None):
         try:
             if executive_id:
                 executive = get_object_or_404(Executive, id=executive_id)
             else:
-                executive = get_object_or_404(Executive, user=request.user)  
-            
+                executive = get_object_or_404(Executive, id=request.user.id)
+
             try:
                 profile_picture = ExecutiveProfilePicture.objects.get(executive=executive)
-                serializer = ExecutiveProfilePictureSerializer(profile_picture)
+                serializer = ExecutiveProfilePictureSerializer(profile_picture, context={"request": request})
                 return Response(serializer.data, status=status.HTTP_200_OK)
             except ExecutiveProfilePicture.DoesNotExist:
                 return Response(
-                    {"message": "No profile picture found for this executive"}, 
+                    {"message": "No profile picture found for this executive"},
                     status=status.HTTP_404_NOT_FOUND
                 )
-                
+
         except Executive.DoesNotExist:
-            return Response(
-                {"error": "Executive not found"}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+
 
 
 class ExecutiveProfilePictureStatusView(APIView):
@@ -715,3 +773,31 @@ class ExecutiveStatusAPIView(APIView):
         executive = request.user 
         serializer = ExecutiveDetailSerializer(executive)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class ExecutiveStatsDetailView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication] 
+    def get(self, request, id):
+        executive = get_object_or_404(Executive, id=id)
+
+        stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
+
+        serializer = ExecutiveStatsSerializer(stats)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+class BlockedUsersListByExecutiveAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]  
+
+    def get(self, request, executive_id):
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        blocked_users = BlockedusersByExecutive.objects.filter(executive=executive, is_blocked=True).select_related("user")
+
+        serializer = BlockedUserSerializer(blocked_users, many=True)
+        return Response({
+            "executive": executive.name,
+            "total_blocked": blocked_users.count(),
+            "blocked_users": serializer.data
+        }, status=status.HTTP_200_OK)

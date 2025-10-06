@@ -50,7 +50,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
 
     account_number = models.CharField(max_length=30, null=True, blank=True)
     ifsc_code = models.CharField(max_length=20, null=True, blank=True)
-
+    is_favourite = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 
@@ -64,14 +64,16 @@ class Executive(AbstractBaseUser, PermissionsMixin):
 
 
 
+from django.db import models
+from django.utils import timezone
+
+
 class ExecutiveStats(models.Model):
     executive = models.OneToOneField(
-        Executive, on_delete=models.CASCADE, related_name="stats"
+        "Executive", on_delete=models.CASCADE, related_name="stats"
     )
-
-    #Coin related tracking
-    coins_per_second = models.FloatField(default=3) #from user 
-    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=0.0) 
+    coins_per_second = models.FloatField(default=3)  # from user
+    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     vault_Balance = models.IntegerField(default=0)
 
     # Call tracking
@@ -81,16 +83,23 @@ class ExecutiveStats(models.Model):
     total_missed_calls = models.PositiveIntegerField(default=0)
 
     total_earnings = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.00,
-        help_text="Total lifetime earnings of executive"
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text="Total lifetime earnings of executive",
     )
     earnings_today = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.00,
-        help_text="Earnings for today"
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text="Earnings for current day (auto-resets daily)",
     )
+
     pending_payout = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.00,
-        help_text="Balance to be paid to executive"
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text="Lifetime payout pending (does not reset daily)",
     )
 
     last_updated = models.DateTimeField(auto_now=True)
@@ -98,6 +107,44 @@ class ExecutiveStats(models.Model):
     def __str__(self):
         return f"Stats for {self.executive.name}"
 
+    # ----------- DAILY RESET LOGIC -----------
+
+    def _reset_if_new_day(self):
+        now = timezone.now()
+        if self.last_updated.date() != now.date():
+            self.earnings_today = 0.00
+            self.total_talk_seconds_today = 0
+            self.last_updated = now
+            self.save(
+                update_fields=["earnings_today", "total_talk_seconds_today", "last_updated"]
+            )
+
+    @property
+    def current_earnings_today(self):
+        self._reset_if_new_day()
+        return self.earnings_today
+
+    @property
+    def current_talk_seconds_today(self):
+        self._reset_if_new_day()
+        return self.total_talk_seconds_today
+
+    def update_earnings(self, amount, talk_seconds):
+        self._reset_if_new_day()
+        self.earnings_today += amount
+        self.total_talk_seconds_today += talk_seconds
+        self.total_earnings += amount
+        self.pending_payout += amount
+        self.last_updated = timezone.now()
+        self.save(
+            update_fields=[
+                "earnings_today",
+                "total_talk_seconds_today",
+                "total_earnings",
+                "pending_payout",
+                "last_updated",
+            ]
+        )
 
 
 class ExecutiveToken(models.Model):
@@ -158,3 +205,5 @@ class ExecutiveProfilePicture(models.Model):
     def reject(self):
         self.status = 'rejected'
         self.save()
+
+

@@ -15,7 +15,13 @@ from executives.models import ExecutiveStats
 from .pagination import CustomCallPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAdminUser
-
+from calls.utils import generate_agora_token
+import threading
+import time
+from executives.models import Executive
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+from users.models import UserStats
 
 class IsAuthenticatedOrService(permissions.BasePermission):
  
@@ -25,12 +31,22 @@ class IsAuthenticatedOrService(permissions.BasePermission):
         # allow for webhook endpoint; actual verification will be inside the view
         return view.__class__.__name__ == "AgoraWebhookView"
 
-from calls.utils import generate_agora_token
+
+
+
 import threading
-import time
-from executives.models import Executive
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from django.utils import timezone
+from django.shortcuts import get_object_or_404
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import AgoraCallHistory
+from calls.serializers import CallInitiateSerializer
+from calls.utils import generate_agora_token
+from executives.models import Executive, ExecutiveStats
 from users.models import UserStats
 
 
@@ -69,12 +85,12 @@ class CallInitiateView(APIView):
             executive.on_call = True
             executive.save(update_fields=["on_call"])
 
-            # Generate tokens for caller and executive
+            # Generate tokens
             caller_token = generate_agora_token(channel_name, caller_uid)
             callee_uid = caller_uid + 1000
             executive_token = generate_agora_token(channel_name, callee_uid)
 
-            # Get executive rates safely
+            # Get executive stats
             exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
             rate_per_minute = exec_stats.amount_per_min
             coins_per_second = exec_stats.coins_per_second
@@ -97,8 +113,8 @@ class CallInitiateView(APIView):
             # Send WebSocket notification
             self.send_incoming_call_notification(executive_id, call_history, user)
 
-            # Schedule missed call check
-            self.schedule_missed_call_check(call_history.id)
+            # Schedule missed call check (non-Celery)
+            threading.Timer(30, self.mark_call_as_missed, args=[call_history.id]).start()
 
             return Response({
                 "id": call_history.id,
@@ -148,21 +164,32 @@ class CallInitiateView(APIView):
         except Exception as e:
             print(f"WebSocket notification failed: {e}")
 
-    def schedule_missed_call_check(self, call_id):
-        from .tasks import mark_call_as_missed
-        mark_call_as_missed.apply_async(args=[call_id], countdown=30)
-
-
-
-class GetCallByChannelView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, channel_name):
+    @staticmethod
+    def mark_call_as_missed(call_id):
+        """Mark call as missed after timeout (threading version)."""
         try:
-            call = AgoraCallHistory.objects.get(channel_name=channel_name)
+            call = AgoraCallHistory.objects.get(id=call_id, status="pending")
+            call.status = "missed"
+            call.is_active = False
+            call.end_time = timezone.now()
+            call.save(update_fields=["status", "is_active", "end_time"])
+
+            call.executive.on_call = False
+            call.executive.save(update_fields=["on_call"])
+
+            # WebSocket notifications
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"executive_{call.executive.id}",
+                    {"type": "call_missed", "call_id": call_id}
+                )
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{call.user.id}",
+                    {"type": "call_missed", "call_id": call_id}
+                )
         except AgoraCallHistory.DoesNotExist:
-            return Response({"detail": "Not found"}, status=404)
-        return Response(CallDetailSerializer(call).data)
+            pass
 
 
 class MarkJoinedView(APIView):
@@ -176,57 +203,6 @@ class MarkJoinedView(APIView):
             return Response({"detail": "Active call not found"}, status=404)
         call.mark_joined()
         return Response({"ok": True})
-
-
-class EndCallView(APIView):
-    permission_classes = []
-
-    def post(self, request, call_id):
-        try:
-            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
-        except AgoraCallHistory.DoesNotExist:
-            return Response({"error": "Call not found or already ended"}, status=404)
-
-        #  Check if user has coins left before ending
-        if call.user.coin_balance <= 0:
-            call.end_call(ender="system")
-            reason = "Insufficient balance, call ended automatically"
-        else:
-            call.end_call(ender="client")
-            reason = "Call ended by user"
-
-        try:
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                caller_group = f"user_client_{call.user_id}"
-                executive_group = f"user_executive_{call.executive_id}"
-                for group_name in [caller_group, executive_group]:
-                    async_to_sync(channel_layer.group_send)(
-                        group_name,
-                        {
-                            'type': 'call_ended',
-                            'call_id': call.id,
-                            'reason': reason,
-                            'ended_by': call.ended_by,
-                            'coins_deducted': call.coins_deducted,
-                            'executive_earnings': float(call.executive_earnings),
-                            'duration_seconds': call.duration_seconds
-                        }
-                    )
-        except Exception as e:
-            print(f"WebSocket end call notification failed: {e}")
-
-        return Response({
-            "ok": True,
-            "message": reason,
-            "coins_deducted": call.coins_deducted,
-            "executive_earnings": float(call.executive_earnings),
-            "duration_seconds": call.duration_seconds
-        })
-
-
-
-
 
 
 class AgoraWebhookView(APIView):
@@ -485,3 +461,124 @@ class ExecutiveCallHistoryListAPIView(APIView):
         serializer = CallHistorySerializer(paginated_queryset, many=True)
 
         return paginator.get_paginated_response(serializer.data)
+
+
+class RecentExecutiveCallsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [ExecutiveTokenAuthentication]  
+
+    def get(self, request, executive_id):
+        executive = get_object_or_404(Executive, id=executive_id)
+
+        pending_calls = AgoraCallHistory.objects.filter(
+            executive=executive,
+            status="pending"
+        ).order_by("-start_time")[:20]
+
+        serializer = CallHistorySerializer(pending_calls, many=True)
+        return Response({
+            "executive": executive.name,
+            "total_pending_calls": pending_calls.count(),
+            "pending_calls": serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+class UserEndCallView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+        except AgoraCallHistory.DoesNotExist:
+            return Response({"error": "Call not found or already ended"}, status=404)
+
+        # Get user coin balance
+        try:
+            user_balance = call.user.stats.coin_balance
+        except UserStats.DoesNotExist:
+            user_balance = 0
+
+        if user_balance <= 0:
+            call.end_call(ender="system")
+            reason = "Insufficient balance, call ended automatically"
+        else:
+            call.end_call(ender="user")
+            reason = "Call ended by user"
+
+        # Send WebSocket notification
+        self.notify_end_call(call, reason)
+
+        return Response({
+            "ok": True,
+            "message": reason,
+            "coins_deducted": call.coins_deducted,
+            "executive_earnings": float(call.executive_earnings),
+            "duration_seconds": call.duration_seconds
+        })
+
+
+    def notify_end_call(self, call, reason):
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                    async_to_sync(channel_layer.group_send)(
+                        group_name,
+                        {
+                            'type': 'call_ended',
+                            'call_id': call.id,
+                            'reason': reason,
+                            'ended_by': call.ended_by,
+                            'coins_deducted': call.coins_deducted,
+                            'executive_earnings': float(call.executive_earnings),
+                            'duration_seconds': call.duration_seconds
+                        }
+                    )
+        except Exception as e:
+            print(f"WebSocket notification failed: {e}")
+
+
+
+class ExecutiveEndCallView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [ExecutiveTokenAuthentication]
+
+    def post(self, request, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+        except AgoraCallHistory.DoesNotExist:
+            return Response({"error": "Call not found or already ended"}, status=404)
+
+        call.end_call(ender="executive")
+        reason = "Call ended by executive"
+
+        # Send WebSocket notification
+        self.notify_end_call(call, reason)
+
+        return Response({
+            "ok": True,
+            "message": reason,
+            "coins_deducted": call.coins_deducted,
+            "executive_earnings": float(call.executive_earnings),
+            "duration_seconds": call.duration_seconds
+        })
+
+    def notify_end_call(self, call, reason):
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                    async_to_sync(channel_layer.group_send)(
+                        group_name,
+                        {
+                            'type': 'call_ended',
+                            'call_id': call.id,
+                            'reason': reason,
+                            'ended_by': call.ended_by,
+                            'coins_deducted': call.coins_deducted,
+                            'executive_earnings': float(call.executive_earnings),
+                            'duration_seconds': call.duration_seconds
+                        }
+                    )
+        except Exception as e:
+            print(f"WebSocket notification failed: {e}")
