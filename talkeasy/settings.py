@@ -145,28 +145,13 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 #databases
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'talk_easy',
-        'USER': 'root',
-        'PASSWORD':'@1234567890',
-        'HOST':'127.0.0.1',
-        'PORT':'3306',
-        'OPTIONS': {
-            'charset': 'utf8mb4',  
-            'use_unicode': True,
-        },
-    }
-}
-
 # DATABASES = {
 #     'default': {
 #         'ENGINE': 'django.db.backends.mysql',
-#         'NAME': 'talkeasy$talk_easy',
-#         'USER': 'talkeasy',
+#         'NAME': 'talk_easy',
+#         'USER': 'root',
 #         'PASSWORD':'@1234567890',
-#         'HOST':'talkeasy.mysql.pythonanywhere-services.com',
+#         'HOST':'127.0.0.1',
 #         'PORT':'3306',
 #         'OPTIONS': {
 #             'charset': 'utf8mb4',  
@@ -174,6 +159,21 @@ DATABASES = {
 #         },
 #     }
 # }
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'talkeasy$talk_easy',
+        'USER': 'talkeasy',
+        'PASSWORD':'@1234567890',
+        'HOST':'talkeasy.mysql.pythonanywhere-services.com',
+        'PORT':'3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',  
+            'use_unicode': True,
+        },
+    }
+}
 
 
 
