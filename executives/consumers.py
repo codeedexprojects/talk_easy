@@ -161,18 +161,18 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         
         await self.broadcast_status()
         
-        await self.send(text_data=json.dumps({
-            "type": "connection_established",
-            "executive_id": self.executive_id,
-            "name": self.user.name,
-            "status": "online",
-            "message": "Successfully connected",
-            "debug_info": {
-                "user_primary_key": self.user.id,
-                "executive_id_field": self.user.executive_id,
-                "mobile_number": self.user.mobile_number
-            }
-        }))
+        # await self.send(text_data=json.dumps({
+        #     "type": "connection_established",
+        #     "executive_id": self.executive_id,
+        #     "name": self.user.name,
+        #     "status": "online",
+        #     "message": "Successfully connected",
+        #     "debug_info": {
+        #         "user_primary_key": self.user.id,
+        #         "executive_id_field": self.user.executive_id,
+        #         "mobile_number": self.user.mobile_number
+        #     }
+        # }))
 
     async def disconnect(self, close_code):
         if hasattr(self, "executive_id") and hasattr(self, "user"):
