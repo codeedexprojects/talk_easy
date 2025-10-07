@@ -71,13 +71,13 @@ class CallInitiateView(APIView):
                 user_stats = user.stats
             except UserStats.DoesNotExist:
                 return Response(
-                    {"detail": "User stats not found"},
+                    {"message": "User stats not found"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             if user_stats.coin_balance < 180:
                 return Response(
-                    {"detail": "At least 180 coins required to start a call"},
+                    {"message": "At least 180 coins required to start a call"},
                     status=status.HTTP_402_PAYMENT_REQUIRED
                 )
 
@@ -133,13 +133,13 @@ class CallInitiateView(APIView):
 
     def validate_executive(self, executive):
         if not executive.is_online:
-            return Response({"detail": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"message": "Executive is offline"}, status=status.HTTP_400_BAD_REQUEST)
         if executive.is_banned:
-            return Response({"detail": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"message": "Executive is banned"}, status=status.HTTP_403_FORBIDDEN)
         if executive.is_suspended:
-            return Response({"detail": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"message": "Executive is suspended"}, status=status.HTTP_403_FORBIDDEN)
         if executive.on_call:
-            return Response({"detail": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"message": "Executive is on another call"}, status=status.HTTP_400_BAD_REQUEST)
         return None
 
     def send_incoming_call_notification(self, executive_id, call_history, caller):
@@ -200,7 +200,7 @@ class MarkJoinedView(APIView):
         try:
             call = AgoraCallHistory.objects.get(channel_name=channel_name, is_active=True)
         except AgoraCallHistory.DoesNotExist:
-            return Response({"detail": "Active call not found"}, status=404)
+            return Response({"message": "Active call not found"}, status=404)
         call.mark_joined()
         return Response({"ok": True})
 
@@ -473,12 +473,11 @@ class RecentExecutiveCallsAPIView(APIView):
         pending_calls = AgoraCallHistory.objects.filter(
             executive=executive,
             status="pending"
-        ).order_by("-start_time")[:20]
+        ).order_by("-start_time").first()
 
-        serializer = CallHistorySerializer(pending_calls, many=True)
+        serializer = CallHistorySerializer(pending_calls)
         return Response({
             "executive": executive.name,
-            "total_pending_calls": pending_calls.count(),
             "pending_calls": serializer.data
         }, status=status.HTTP_200_OK)
 
@@ -582,3 +581,66 @@ class ExecutiveEndCallView(APIView):
                     )
         except Exception as e:
             print(f"WebSocket notification failed: {e}")
+
+
+class AdminExecutiveCallHistoryAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]  
+    pagination_class = CustomCallPagination
+
+    def get(self, request, executive_id):
+        try:
+            executive = Executive.objects.get(id=executive_id)
+        except Executive.DoesNotExist:
+            return Response(
+                {"error": "Executive not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        status_filter = request.query_params.get("status")
+        queryset = AgoraCallHistory.objects.filter(executive=executive).order_by("-start_time")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        paginator = self.pagination_class()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = CallHistorySerializer(paginated_queryset, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
+    
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+from rest_framework import status
+from .models import AgoraCallHistory
+from users.models import UserProfile
+from .serializers import CallHistorySerializer
+from .pagination import CustomCallPagination  # adjust import path if needed
+
+
+class AdminUserCallHistoryAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    pagination_class = CustomCallPagination
+
+    def get(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        status_filter = request.query_params.get("status")
+        queryset = AgoraCallHistory.objects.filter(user=user).order_by("-start_time")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        paginator = self.pagination_class()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = CallHistorySerializer(paginated_queryset, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
