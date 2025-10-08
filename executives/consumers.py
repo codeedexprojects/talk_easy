@@ -216,7 +216,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 await self.broadcast_status()
             
             await self.send(text_data=json.dumps({
-                "type": "ack",
+                "type": "status_changed",
                 "executive_id": self.executive_id,
                 "status": EXECUTIVE_STATUS[self.executive_id],
                 "message": f"Status updated to {EXECUTIVE_STATUS[self.executive_id]}"
