@@ -294,19 +294,29 @@ from executives.serializers import *
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from accounts.pagination import CustomUserPagination
+from django.db.models import Case, When, Value, IntegerField
 
 class ExecutiveListAPIView(APIView):
     permission_classes = [IsAuthenticated]
     pagination_class = CustomUserPagination
 
     def get(self, request):
-        executives = Executive.objects.all().order_by('-created_at')
+        executives = (
+            Executive.objects
+            .annotate(
+                online_priority=Case(
+                    When(is_online=True, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField()
+                )
+            )
+            .order_by('-online_priority', '-created_at')
+        )
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(executives, request, view=self)
 
         serializer = Executivelistserializer(page, many=True, context={'request': request})
-
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
@@ -316,9 +326,7 @@ class ExecutiveListAPIView(APIView):
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
                 "executives_group",
-                {
-                    "type": "send_executives_list"
-                }
+                {"type": "send_executives_list"}
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
