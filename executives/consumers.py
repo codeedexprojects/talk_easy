@@ -1,100 +1,48 @@
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
-from django.contrib.auth.models import AnonymousUser
-from channels.db import database_sync_to_async
-from django.utils import timezone
 from urllib.parse import parse_qs
 
-# JWT imports for UsersConsumer
+from channels.db import database_sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
+from django.utils import timezone
+from django.conf import settings
+
 from rest_framework_simplejwt.tokens import UntypedToken
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-from django.conf import settings
 import jwt
 
-# Import your models (adjust paths as needed)
 from executives.models import Executive, ExecutiveToken
 from users.models import UserProfile
 
-# Clean global dictionary for executive statuses
 EXECUTIVE_STATUS = {}
 
+
+# -------------------- JWT Auth Mixin --------------------
 class JWTAuthMixin:
-    
-    async def authenticate_jwt(self, token):
+
+    async def authenticate_jwt(self, token: str):
         try:
             UntypedToken(token)
-            
-            decoded_token = jwt.decode(
-                token, 
-                settings.SECRET_KEY, 
-                algorithms=['HS256']
-            )
-            
+
+            decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
             user_id = decoded_token.get('user_id')
-            print(f"DEBUG: JWT Token decoded user_id: {user_id}")  
-            
             if not user_id:
+                print("DEBUG: JWT missing user_id")
                 return None
-                
+
             user = await self.get_user_by_id_jwt(user_id)
             if user:
-                print(f"DEBUG: Found user via JWT: {getattr(user, 'name', 'Unknown')} (ID: {user.id})")
+                print(f"DEBUG: JWT auth success for user id {user_id}")
             return user
-            
-        except (InvalidToken, TokenError, jwt.ExpiredSignatureError, jwt.DecodeError) as e:
-            print(f"JWT Authentication failed: {str(e)}")
+
+        except (InvalidToken, TokenError, jwt.ExpiredSignatureError, jwt.DecodeError) as exc:
+            print(f"DEBUG: JWT authentication failed: {exc}")
             return None
-    
+
     @database_sync_to_async
     def get_user_by_id_jwt(self, user_id):
-        try:
-            executive = Executive.objects.get(id=user_id)
-            print(f"DEBUG: Found executive via JWT: {executive.name} ({executive.executive_id})")
-            return executive
-        except Executive.DoesNotExist:
-            try:
-                user_profile = UserProfile.objects.get(id=user_id)
-                print(f"DEBUG: Found UserProfile via JWT: {getattr(user_profile, 'name', 'Unknown User')}")
-                return user_profile
-            except UserProfile.DoesNotExist:
-                return None
 
-
-class CustomTokenAuthMixin:    
-    async def authenticate_token(self, token):
         try:
-            token_obj = await self.get_token_by_refresh_token(token)
-            if not token_obj:
-                print(f"DEBUG: Token not found in database: {token[:10]}...")
-                return None
-            
-            if hasattr(token_obj, 'expires_at') and token_obj.expires_at:
-                if token_obj.expires_at < timezone.now():
-                    print(f"DEBUG: Token expired at {token_obj.expires_at}")
-                    return None
-            
-            executive = token_obj.executive
-            if executive:
-                print(f"DEBUG: Found executive: {executive.name} (ID: {executive.id}, Exec ID: {executive.executive_id})")
-            return executive
-            
-        except Exception as e:
-            print(f"Custom Token Authentication failed: {str(e)}")
-            return None
-    
-    @database_sync_to_async
-    def get_token_by_refresh_token(self, token):
-        try:
-            return ExecutiveToken.objects.select_related('executive').get(refresh_token=token)
-        except ExecutiveToken.DoesNotExist:
-            return None
-    
-    @database_sync_to_async
-    def get_user_by_id(self, user_id):
-        try:
-            executive = Executive.objects.get(id=user_id)
-            print(f"DEBUG: Found executive: {executive.name} ({executive.executive_id})")
-            return executive
+            return Executive.objects.get(id=user_id)
         except Executive.DoesNotExist:
             try:
                 return UserProfile.objects.get(id=user_id)
@@ -102,179 +50,223 @@ class CustomTokenAuthMixin:
                 return None
 
 
+# -------------------- Custom Token Auth Mixin --------------------
+class CustomTokenAuthMixin:
+
+
+    async def authenticate_token(self, token: str):
+        try:
+            token_obj = await self.get_token_by_refresh_token(token)
+            if not token_obj:
+                print("DEBUG: Custom token not found")
+                return None
+
+            if getattr(token_obj, "expires_at", None):
+                if token_obj.expires_at < timezone.now():
+                    print(f"DEBUG: Token expired at {token_obj.expires_at}")
+                    return None
+
+            executive = token_obj.executive
+            if executive:
+                print(f"DEBUG: Custom token auth success for executive id {executive.id}")
+            return executive
+
+        except Exception as exc:
+            print(f"DEBUG: Custom token authentication failed: {exc}")
+            return None
+
+    @database_sync_to_async
+    def get_token_by_refresh_token(self, token):
+        try:
+            return ExecutiveToken.objects.select_related('executive').get(refresh_token=token)
+        except ExecutiveToken.DoesNotExist:
+            return None
+
+    @database_sync_to_async
+    def get_user_by_id(self, user_id):
+        try:
+            return Executive.objects.get(id=user_id)
+        except Executive.DoesNotExist:
+            try:
+                return UserProfile.objects.get(id=user_id)
+            except UserProfile.DoesNotExist:
+                return None
+
+
+# -------------------- ExecutivesConsumer --------------------
 class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
+
     async def connect(self):
         headers = dict(self.scope.get('headers', []))
         token = headers.get(b'x-executive-token', b'').decode()
-        
+
         if not token:
             query_string = self.scope.get('query_string', b'').decode()
-            query_params = parse_qs(query_string)
-            token = query_params.get('token', [None])[0]
-        
+            params = parse_qs(query_string)
+            token = params.get('token', [None])[0]
+
         if not token:
-            print("DEBUG: No token provided in headers or query params")
+            print("DEBUG: Connect rejected: no executive token presented")
             await self.close(code=4001)
             return
-        
-        # Authenticate user with custom token
+
         authenticated_user = await self.authenticate_token(token)
         if not authenticated_user:
-            print("DEBUG: Authentication failed")
-            # Send error message before closing
             await self.accept()
             await self.send(text_data=json.dumps({
                 "type": "authentication_error",
-                "error": "Authentication failed. Token may be expired or invalid.",
+                "error": "Authentication failed. Token invalid or expired.",
                 "code": 4001
             }))
             await self.close(code=4001)
             return
-        
+
         if not isinstance(authenticated_user, Executive):
-            print("DEBUG: User is not an Executive")
+            print("DEBUG: Connect rejected: token not linked to an Executive")
             await self.close(code=4003)
             return
-        
+
         self.user = authenticated_user
-        
-        path_executive_id = self.scope['url_route']['kwargs'].get('executive_id')
-        
-        if path_executive_id and str(path_executive_id) != str(self.user.executive_id):
-            print(f"DEBUG: Access denied. Path ID: {path_executive_id}, User ID: {self.user.executive_id}")
+
+        path_exec_id = self.scope['url_route']['kwargs'].get('executive_id')
+        if path_exec_id and str(path_exec_id) != str(self.user.executive_id):
+            print("DEBUG: Path exec ID mismatch; closing")
             await self.close(code=4003)
             return
-        
-        # Use the authenticated user's executive_id
+
         self.executive_id = str(self.user.executive_id)
         self.users_group_name = "users_online"
-        
-        print(f"DEBUG: Executive {self.user.name} ({self.executive_id}) connecting...")
-        
+        self.private_group_name = f"executive_{self.executive_id}"
+
         await self.accept()
-        
+
+        # Join both broadcast group and private group
         await self.channel_layer.group_add(self.users_group_name, self.channel_name)
-        
+        await self.channel_layer.group_add(self.private_group_name, self.channel_name)
+
+        # Update in-memory and DB statuses
         EXECUTIVE_STATUS[self.executive_id] = "online"
-        
         await self.update_executive_status("online")
-        
         await self.broadcast_status()
-        
-        # await self.send(text_data=json.dumps({
-        #     "type": "connection_established",
-        #     "executive_id": self.executive_id,
-        #     "name": self.user.name,
-        #     "status": "online",
-        #     "message": "Successfully connected",
-        #     "debug_info": {
-        #         "user_primary_key": self.user.id,
-        #         "executive_id_field": self.user.executive_id,
-        #         "mobile_number": self.user.mobile_number
-        #     }
-        # }))
+
+        print(f"DEBUG: Executive connected: {self.user.name} ({self.executive_id})")
 
     async def disconnect(self, close_code):
-        if hasattr(self, "executive_id") and hasattr(self, "user"):
-            print(f"DEBUG: Executive {self.user.name} ({self.executive_id}) disconnecting...")
+        if hasattr(self, "executive_id"):
             EXECUTIVE_STATUS[self.executive_id] = "offline"
             await self.update_executive_status("offline")
             await self.broadcast_status()
-        
-        if hasattr(self, "users_group_name") and hasattr(self, "channel_name"):
+
+        if hasattr(self, "users_group_name"):
             await self.channel_layer.group_discard(self.users_group_name, self.channel_name)
+        if hasattr(self, "private_group_name"):
+            await self.channel_layer.group_discard(self.private_group_name, self.channel_name)
+
+        print(f"DEBUG: Executive disconnected: {getattr(self, 'executive_id', 'unknown')}")
 
     async def receive(self, text_data):
         try:
             data = json.loads(text_data)
-            print(f"DEBUG: Received message from {self.user.name}: {data}")
-            
-            if "status" in data:
-                new_status = data["status"]
-                
-                valid_statuses = ["online", "offline", "oncall"]
-                if new_status not in valid_statuses:
-                    await self.send(text_data=json.dumps({
-                        "error": f"Invalid status. Valid options: {valid_statuses}"
-                    }))
+            msg_type = data.get("type")
+
+            # Exec status update
+            if msg_type == "status_update":
+                new_status = data.get("status")
+                valid = ["online", "offline", "oncall"]
+                if new_status not in valid:
+                    await self.send(text_data=json.dumps({"error": f"Invalid status, valid: {valid}"}))
                     return
-                
+
                 EXECUTIVE_STATUS[self.executive_id] = new_status
                 await self.update_executive_status(new_status)
                 await self.broadcast_status()
-                
-            elif "connect" in data:
-                status = "online" if data["connect"] else "offline"
-                EXECUTIVE_STATUS[self.executive_id] = status
-                await self.update_executive_status(status)
-                await self.broadcast_status()
-                
-            elif "oncall" in data:
-                status = "oncall" if data["oncall"] else "online"
-                EXECUTIVE_STATUS[self.executive_id] = status
-                await self.update_executive_status(status)
-                await self.broadcast_status()
-            
-            await self.send(text_data=json.dumps({
-                "type": "status_changed",
-                "executive_id": self.executive_id,
-                "status": EXECUTIVE_STATUS[self.executive_id],
-                "message": f"Status updated to {EXECUTIVE_STATUS[self.executive_id]}"
-            }))
-            
-        except Exception as e:
-            print(f"DEBUG: Error in receive: {str(e)}")
-            await self.send(text_data=json.dumps({"error": str(e)}))
+                await self.send(text_data=json.dumps({
+                    "type": "status_changed",
+                    "executive_id": self.executive_id,
+                    "status": new_status
+                }))
+                return
+
+            # Exec response to a user-initiated call
+            if msg_type == "executive_response":
+                user_id = data.get("user_id")
+                call_id = data.get("call_id")
+                callee_id = data.get("callee_id") 
+                status = data.get("status") 
+
+                if not user_id or not status:
+                    await self.send(text_data=json.dumps({
+                        "error": "Missing 'user_id' or 'status' in executive_response."
+                    }))
+                    return
+
+                user_group = f"user_{user_id}"
+                payload = {
+                    "type": "user_call_response",
+                    "data": {
+                        "executive_id": self.executive_id,
+                        "user_id": user_id,
+                        "call_id": call_id,
+                        "callee_id": callee_id,
+                        "status": status
+                    }
+                }
+
+                await self.channel_layer.group_send(user_group, payload)
+                # Optionally acknowledge to executive
+                await self.send(text_data=json.dumps({
+                    "type": "executive_response_sent",
+                    "to_user": user_id,
+                    "call_id": call_id,
+                    "status": status
+                }))
+                return
+
+            # Unknown type - ignore or inform client
+            await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
+
+        except Exception as exc:
+            print(f"DEBUG: Error in ExecutivesConsumer.receive: {exc}")
+            await self.send(text_data=json.dumps({"error": str(exc)}))
 
     @database_sync_to_async
-    def update_executive_status(self, status):
+    def update_executive_status(self, status: str):
         try:
-            self.user.is_online = status == "online"
-            self.user.on_call = status == "oncall"
+            self.user.is_online = (status == "online")
+            self.user.on_call = (status == "oncall")
             self.user.save(update_fields=['is_online', 'on_call'])
-            print(f"DEBUG: Updated {self.user.name} status in database: {status}")
-        except Exception as e:
-            print(f"DEBUG: Error updating database: {str(e)}")
+            print(f"DEBUG: DB status updated for {self.user.executive_id}: {status}")
+        except Exception as exc:
+            print(f"DEBUG: Error updating Exec DB status: {exc}")
 
     async def broadcast_status(self):
-        try:
-            executive_data = await self.get_executives_detailed_status()
-            
-            print(f"DEBUG: Broadcasting status update: {len(executive_data)} executives")
-            
-            await self.channel_layer.group_send(
-                self.users_group_name,
-                {
-                    "type": "status_update",
-                    "data": executive_data
-                }
-            )
-        except Exception as e:
-            print(f"DEBUG: Error in broadcast_status: {str(e)}")
+        executive_data = await self.get_executives_detailed_status()
+        await self.channel_layer.group_send(
+            self.users_group_name,
+            {"type": "status_update", "data": executive_data}
+        )
 
     @database_sync_to_async
     def get_executives_detailed_status(self):
-        executive_data = []
+
+        result = []
         for exec_id, status in EXECUTIVE_STATUS.items():
             try:
-                executive = Executive.objects.get(executive_id=exec_id)
-                executive_data.append({
+                exec_obj = Executive.objects.get(executive_id=exec_id)
+                result.append({
                     "executive_id": exec_id,
-                    "name": executive.name,
+                    "name": exec_obj.name,
                     "status": status,
                     "is_available": status in ["online", "oncall"]
                 })
-                print(f"DEBUG: Added {executive.name} to status list")
             except Executive.DoesNotExist:
-                print(f"DEBUG: Executive with ID {exec_id} not found in database")
-                # If executive not found, include basic info
-                executive_data.append({
+                result.append({
                     "executive_id": exec_id,
                     "name": "Unknown Executive",
                     "status": status,
                     "is_available": False
                 })
-        return executive_data
+        return result
 
     async def status_update(self, event):
         try:
@@ -282,79 +274,156 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 "type": "executive_status_list",
                 "data": event["data"]
             }))
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"DEBUG: Error sending status_update to exec client: {exc}")
+
+    async def call_event(self, event):
+
+        try:
+            data = event.get("data", {})
+            await self.send(text_data=json.dumps({
+                "type": "incoming_call",
+                "data": data
+            }))
+        except Exception as exc:
+            print(f"DEBUG: Error in call_event: {exc}")
 
 
+# -------------------- UsersConsumer --------------------
 class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
-    
+
+
     async def connect(self):
-        # Extract token from headers first, fallback to query parameters
         headers = dict(self.scope.get('headers', []))
-        token = headers.get(b'authorization', b'').decode().replace('Bearer ', '')
-        
-        # Fallback to query parameters if no header token
+        raw_auth = headers.get(b'authorization', b'').decode()
+        token = raw_auth.replace('Bearer ', '') if raw_auth else None
+
+        # fallback to query param
         if not token:
             query_string = self.scope.get('query_string', b'').decode()
-            query_params = parse_qs(query_string)
-            token = query_params.get('token', [None])[0]
-        
+            params = parse_qs(query_string)
+            token = params.get('token', [None])[0]
+
         if not token:
-            print("DEBUG: No JWT token provided in headers or query params")
+            print("DEBUG: Connect rejected: no JWT token")
             await self.close(code=4001)
             return
-        
-        # Authenticate user with JWT
+
         authenticated_user = await self.authenticate_jwt(token)
         if not authenticated_user:
-            print("DEBUG: JWT authentication failed")
+            print("DEBUG: JWT auth failed for user connection")
             await self.close(code=4001)
             return
-        
+
         self.user = authenticated_user
         self.group_name = "users_online"
-        
+        self.user_group_name = f"user_{getattr(self.user, 'id', None)}"
+
         await self.accept()
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        
+        await self.channel_layer.group_add(self.user_group_name, self.channel_name)
+
         executive_data = await self.get_executives_detailed_status()
         await self.send(text_data=json.dumps({
             "type": "executive_status_list",
             "data": executive_data,
             "user_info": {
-                "user_id": getattr(self.user, 'user_id', None) or getattr(self.user, 'executive_id', None),
+                "user_id": getattr(self.user, 'user_id', None) or getattr(self.user, 'id', None),
                 "name": getattr(self.user, 'name', 'Unknown'),
                 "user_type": "executive" if isinstance(self.user, Executive) else "user"
             }
         }))
 
+        print(f"DEBUG: User connected: {getattr(self.user, 'id', 'unknown')}")
+
     async def disconnect(self, close_code):
-        if hasattr(self, 'group_name') and hasattr(self, 'channel_name'):
+        if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if hasattr(self, 'user_group_name'):
+            await self.channel_layer.group_discard(self.user_group_name, self.channel_name)
+
+        print(f"DEBUG: User disconnected: {getattr(self.user, 'id', 'unknown')}")
+
+    async def receive(self, text_data):
+
+        try:
+            data = json.loads(text_data)
+            msg_type = data.get("type")
+
+            # User initiating a call to an executive
+            if msg_type == "user_event":
+                executive_id = data.get("executive_id")
+                if not executive_id:
+                    await self.send(text_data=json.dumps({"error": "Missing 'executive_id' in payload."}))
+                    return
+
+                payload = {
+                    "type": "call_event",  # mapped to ExecutivesConsumer.call_event
+                    "data": {
+                        "executive_id": executive_id,
+                        "user_id": data.get("user_id", getattr(self.user, 'id', None)),
+                        "call": data.get("call", False),
+                        "status": data.get("status"),
+                        "call_id": data.get("call_id", 0),
+                        "from_user": getattr(self.user, "name", "Unknown User")
+                    }
+                }
+
+                executive_group = f"executive_{executive_id}"
+                await self.channel_layer.group_send(executive_group, payload)
+
+                # Acknowledge to sender
+                await self.send(text_data=json.dumps({
+                    "type": "acknowledgment",
+                    "message": f"Call event forwarded to executive {executive_id}",
+                    "payload": payload["data"]
+                }))
+                return
+
+            # Unknown message types can be handled or ignored
+            await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
+
+        except Exception as exc:
+            print(f"DEBUG: Error in UsersConsumer.receive: {exc}")
+            await self.send(text_data=json.dumps({"error": str(exc)}))
 
     @database_sync_to_async
     def get_executives_detailed_status(self):
-        executive_data = []
+
+        result = []
         for exec_id, status in EXECUTIVE_STATUS.items():
             try:
-                executive = Executive.objects.get(executive_id=exec_id)
-                executive_data.append({
+                exec_obj = Executive.objects.get(executive_id=exec_id)
+                result.append({
                     "executive_id": exec_id,
-                    "name": executive.name,
+                    "name": exec_obj.name,
                     "status": status,
                     "is_available": status in ["online", "oncall"]
                 })
             except Executive.DoesNotExist:
-                executive_data.append({
+                result.append({
                     "executive_id": exec_id,
                     "name": "Unknown Executive",
                     "status": status,
                     "is_available": False
                 })
-        return executive_data
+        return result
+
+    async def user_call_response(self, event):
+
+        try:
+            await self.send(text_data=json.dumps({
+                "type": "executive_response",
+                "data": event.get("data", {})
+            }))
+        except Exception as exc:
+            print(f"DEBUG: Error sending user_call_response: {exc}")
 
     async def status_update(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "executive_status_list",
-            "data": event["data"]
-        }))
+        try:
+            await self.send(text_data=json.dumps({
+                "type": "executive_status_list",
+                "data": event.get("data", [])
+            }))
+        except Exception as exc:
+            print(f"DEBUG: Error sending status_update to user: {exc}")
