@@ -45,6 +45,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
     created_at = models.DateTimeField(default=timezone.now)
     device_id = models.CharField(max_length=255, default=uuid.uuid4)
     last_login = models.DateTimeField(null=True, blank=True)
+    fcm_token = models.CharField(max_length=500, blank=True, null=True)
 
     manager_executive = models.ForeignKey( 'accounts.Admin', on_delete=models.SET_NULL, null=True, related_name="managed_executives" )
 

@@ -59,6 +59,7 @@ class UserProfile(models.Model):
     is_deleted = models.BooleanField(default=False)
     is_online = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    fcm_token = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     PREFIX = "TUR"  
