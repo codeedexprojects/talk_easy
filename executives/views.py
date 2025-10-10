@@ -93,7 +93,7 @@ class RegisterExecutiveView(generics.CreateAPIView):
         )
 
 
-
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from django.core.cache import cache
 class ExecutiveLoginView(APIView):
@@ -117,11 +117,11 @@ class ExecutiveLoginView(APIView):
         if not check_password(password, executive.password):
             return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        if executive.online and not executive.is_logged_out:
-            return Response(
-                {"message": "Already logged in on another device. Please logout first."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # if executive.online and not executive.is_logged_out:
+        #     return Response(
+        #         {"message": "Already logged in on another device. Please logout first."},
+        #         status=status.HTTP_403_FORBIDDEN
+        #     )
 
         if executive.is_suspended or executive.is_banned:
             return Response(
@@ -151,7 +151,6 @@ class ExecutiveLoginView(APIView):
 
 
 
-from rest_framework_simplejwt.tokens import RefreshToken
 
 class ExecutiveVerifyOTPView(APIView):
     permission_classes = []
@@ -168,22 +167,35 @@ class ExecutiveVerifyOTPView(APIView):
         if not executive.otp or str(executive.otp) != str(otp):
             return Response({"message": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
+        ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
+            revoked=True, revoked_at=timezone.now()
+        )
+
+        access_token = str(uuid.uuid4())
+        refresh_token = str(uuid.uuid4())
+        expires_at = timezone.now() + timedelta(days=7)
+
+        new_token = ExecutiveToken.objects.create(
+            executive=executive,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at
+        )
+
         executive.otp = None
-        executive.is_verified = True
         executive.online = True
         executive.is_logged_out = False
+        executive.is_verified = True
         executive.save(update_fields=["otp", "is_verified", "online", "is_logged_out"])
-
-        token_obj = ExecutiveToken.generate(executive)
 
         return Response({
             "message": "OTP verified successfully",
-            "executive_id":executive.executive_id,
-            "id":executive.id,
-            "name":executive.name,
-            "access_token": token_obj.access_token,
-            "refresh_token": token_obj.refresh_token,
-            "expires_at": token_obj.expires_at
+            "executive_id": executive.executive_id,
+            "id": executive.id,
+            "name": executive.name,
+            "access_token": new_token.access_token,
+            "refresh_token": new_token.refresh_token,
+            "expires_at": new_token.expires_at
         }, status=status.HTTP_200_OK)
     
 
