@@ -644,3 +644,19 @@ class AdminUserCallHistoryAPIView(APIView):
         serializer = CallHistorySerializer(paginated_queryset, many=True)
 
         return paginator.get_paginated_response(serializer.data)
+
+from rest_framework.exceptions import NotFound
+class CallDetailAPIView(generics.RetrieveAPIView):
+    queryset = AgoraCallHistory.objects.select_related("user", "executive").all()
+    serializer_class = AgoraCallHistorySerializer
+    permission_classes = [permissions.AllowAny]  
+
+    def get(self, request, *args, **kwargs):
+        call_id = kwargs.get("pk")
+        try:
+            call = self.get_queryset().get(id=call_id)
+        except AgoraCallHistory.DoesNotExist:
+            raise NotFound("Call not found.")
+
+        serializer = self.get_serializer(call)
+        return Response(serializer.data)

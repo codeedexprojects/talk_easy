@@ -89,3 +89,28 @@ class CallHistorySerializer(serializers.ModelSerializer):
             user=obj.user, executive=obj.executive, is_blocked=True
         ).first()
         return bool(blocked_entry)
+    
+class AgoraCallHistorySerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.user.full_name", read_only=True)
+    executive_name = serializers.CharField(source="executive.user.full_name", read_only=True)
+
+    class Meta:
+        model = AgoraCallHistory
+        fields = [
+            "id",
+            "channel_name",
+            "status",
+            "is_active",
+            "start_time",
+            "joined_at",
+            "end_time",
+            "duration_seconds",
+            "coins_deducted",
+            "executive_earnings",
+            "coins_per_second",
+            "amount_per_min",
+            "user_name",
+            "executive_name",
+            "ended_by",
+            "end_request_id",
+        ]
