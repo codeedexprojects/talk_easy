@@ -227,6 +227,9 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
 
     ),
+    'EXCEPTION_HANDLER': 'executives.authentication.custom_exception_handler',
+
+    
 }
 
 
