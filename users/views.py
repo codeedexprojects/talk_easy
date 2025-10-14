@@ -961,3 +961,30 @@ class UserSpecificRatingsView(APIView):
         ratings = Rating.objects.filter(user=user).select_related('user', 'executive').order_by('-created_at')
         serializer = RatingSerializer(ratings, many=True)
         return Response(serializer.data)
+    
+
+class UserSearchView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        query = request.query_params.get("q", "").strip()
+
+        if not query:
+            return Response(
+                {"error": "Search query parameter 'q' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        users = UserProfile.objects.filter(
+            Q(name__icontains=query)
+            | Q(email__icontains=query)
+            | Q(mobile_number__icontains=query)
+            | Q(user_id__icontains=query)
+        ).order_by("-created_at")
+
+        if not users.exists():
+            return Response({"message": "No users found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = UserProfileSerializer(users, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

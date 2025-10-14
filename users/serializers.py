@@ -197,3 +197,19 @@ class BannedUserSerializer(serializers.ModelSerializer):
             "is_banned",
             "created_at",
         ]
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "id",
+            "user_id",
+            "name",
+            "email",
+            "mobile_number",
+            "gender",
+            "is_verified",
+            "is_active",
+            "is_banned",
+            "created_at",
+        ]

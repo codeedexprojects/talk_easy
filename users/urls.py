@@ -44,5 +44,6 @@ urlpatterns = [
     path('users/banned/', BannedUserListView.as_view(), name='banned-users'),
     path('users/filter/', FilteredUserListView.as_view(), name='filtered-users'),
     path('ratings/user/<int:user_id>/', UserSpecificRatingsView.as_view(), name='user-specific-ratings'),
+    path("search/", UserSearchView.as_view(), name="user-search"),
 
 ]

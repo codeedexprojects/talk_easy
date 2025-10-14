@@ -823,3 +823,26 @@ class AllBlockedUsersListView(APIView):
         blocked_users = BlockedusersByExecutive.objects.filter(is_blocked=True).select_related('user', 'executive')
         serializer = BlockedUsersSerializer(blocked_users, many=True)
         return Response(serializer.data)
+    
+
+class ExecutiveSearchView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]  
+
+    def get(self, request):
+        query = request.query_params.get('query', '').strip()
+
+        if not query:
+            return Response({"error": "Please provide a search query."}, status=status.HTTP_400_BAD_REQUEST)
+
+        executives = Executive.objects.filter(
+            Q(executive_id__icontains=query) |
+            Q(name__icontains=query) |
+            Q(mobile_number__icontains=query) |
+            Q(email_id__icontains=query) |
+            Q(profession__icontains=query) |
+            Q(place__icontains=query)
+        ).order_by('name')
+
+        serializer = ExecutiveSerializer(executives, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
