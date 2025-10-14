@@ -160,30 +160,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 #     }
 # }
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'talkeasy$talk_easy',
-        'USER': 'talkeasy',
-        'PASSWORD':'@1234567890',
-        'HOST':'talkeasy.mysql.pythonanywhere-services.com',
-        'PORT':'3306',
-        'OPTIONS': {
-            'charset': 'utf8mb4',  
-            'use_unicode': True,
-        },
-    }
-}
-
-#prod
-
 # DATABASES = {
 #     'default': {
 #         'ENGINE': 'django.db.backends.mysql',
-#         'NAME': 'talkeasytest',
-#         'USER': 'admin',
-#         'PASSWORD':'admin123',
-#         'HOST':'talkeasytest.cluster-crk0828so75f.ap-south-1.rds.amazonaws.com',
+#         'NAME': 'talkeasy$talk_easy',
+#         'USER': 'talkeasy',
+#         'PASSWORD':'@1234567890',
+#         'HOST':'talkeasy.mysql.pythonanywhere-services.com',
 #         'PORT':'3306',
 #         'OPTIONS': {
 #             'charset': 'utf8mb4',  
@@ -191,6 +174,23 @@ DATABASES = {
 #         },
 #     }
 # }
+
+#prod
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'talkeasytest',
+        'USER': 'admin',
+        'PASSWORD':'admin123',
+        'HOST':'talkeasytest.cluster-crk0828so75f.ap-south-1.rds.amazonaws.com',
+        'PORT':'3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',  
+            'use_unicode': True,
+        },
+    }
+}
 
 
 
@@ -250,8 +250,8 @@ SIMPLE_JWT = {
 }
 
 #agora 
-AGORA_APP_ID = 'b5357801b5334948b0ad366baf339701'
-AGORA_APP_CERTIFICATE = 'ae78b88d64d043c8beb7c5dbe289a520'
+AGORA_APP_ID = '9626e8b5f847e6961cb9a996e1ae93'
+AGORA_APP_CERTIFICATE = 'e2f0a6a085d34973ad08c7cfa785796d'
 AGORA_TOKEN_TTL_SECONDS = 3600  
 COINS_PER_SECOND = 3
 
