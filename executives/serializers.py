@@ -256,3 +256,23 @@ class ExecutiveDetailSerializer(serializers.ModelSerializer):
             "is_suspended",
             "stats",
         ]
+
+class BlockedUsersSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    executive_name = serializers.CharField(source='executive.name', read_only=True)
+    executive_id = serializers.CharField(source='executive.executive_id',read_only=True)
+    user_id = serializers.CharField(source='user.user_id', read_only=True)
+    class Meta:
+        model = BlockedusersByExecutive
+        fields = [
+            'id',
+            'user',
+            'user_name',
+            'executive',
+            'executive_name',
+            'is_blocked',
+            'reason',
+            'blocked_at',
+            'executive_id',
+            'user_id'
+        ]
