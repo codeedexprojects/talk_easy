@@ -85,9 +85,12 @@ class CallInitiateView(APIView):
             executive.on_call = True
             executive.save(update_fields=["on_call"])
 
-            # Generate tokens
+            # Generate caller token
             caller_token = generate_agora_token(channel_name, caller_uid)
+            
+            # Calculate callee_uid (executive's UID)
             callee_uid = caller_uid + 1000
+            # Generate executive token with the predetermined UID
             executive_token = generate_agora_token(channel_name, callee_uid)
 
             # Get executive stats
@@ -103,8 +106,8 @@ class CallInitiateView(APIView):
                 callee_uid=callee_uid,
                 token=caller_token,
                 executive_token=executive_token,
-                status="pending",
-                is_active=True,
+                status="ringing",  # Changed from "pending" to "ringing"
+                is_active=False,   # Not active until executive joins
                 user=user,
                 coins_per_second=coins_per_second,
                 amount_per_min=rate_per_minute
@@ -124,7 +127,7 @@ class CallInitiateView(APIView):
                 "token": caller_token,
                 "callee_uid": callee_uid,
                 "executive_token": executive_token,
-                "status": "pending",
+                "status": "ringing",
                 "coins_per_second": coins_per_second,
                 "amount_per_min": str(rate_per_minute)
             }, status=status.HTTP_201_CREATED)
@@ -166,9 +169,8 @@ class CallInitiateView(APIView):
 
     @staticmethod
     def mark_call_as_missed(call_id):
-        """Mark call as missed after timeout (threading version)."""
         try:
-            call = AgoraCallHistory.objects.get(id=call_id, status="pending")
+            call = AgoraCallHistory.objects.get(id=call_id, status="ringing")  # Changed from "pending"
             call.status = "missed"
             call.is_active = False
             call.end_time = timezone.now()
@@ -244,25 +246,44 @@ class CallJoinView(APIView):
     def post(self, request, call_id):
         try:
             call = AgoraCallHistory.objects.get(id=call_id)
-            if call.status not in ["pending", "active"]:
-                return Response({"error": "Call not active"}, status=status.HTTP_400_BAD_REQUEST)
+            # Only allow joining if call is ringing
+            if call.status != "ringing":
+                return Response(
+                    {"error": f"Call cannot be joined. Current status: {call.status}"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         except AgoraCallHistory.DoesNotExist:
             return Response({"error": "Call not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        callee_uid = request.data.get("callee_uid")
-        if not callee_uid:
-            return Response({"error": "callee_uid is required"}, status=status.HTTP_400_BAD_REQUEST)
+        # Verify the executive making the request is the one assigned to this call
+        executive = request.user  # Assuming ExecutiveTokenAuthentication sets request.user
+        if call.executive.id != executive.id:
+            return Response(
+                {"error": "Unauthorized to join this call"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
 
-        # Generate token for executive
-        executive_token = generate_agora_token(call.channel_name, callee_uid)
-
-        # Update call record
-        call.callee_uid = callee_uid
-        call.executive_token = executive_token
-        call.status = "joined"
+        # Update call to active status
+        call.status = "active"
         call.joined_at = timezone.now()
         call.is_active = True
-        call.save()
+        call.save(update_fields=["status", "joined_at", "is_active"])
+
+        # Notify the caller that executive has joined
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            try:
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{call.user.id}",
+                    {
+                        "type": "call_accepted",
+                        "call_id": call.id,
+                        "status": "active",
+                        "joined_at": call.joined_at.isoformat(),
+                    }
+                )
+            except Exception as e:
+                print(f"Failed to notify caller: {e}")
 
         return Response({
             "id": call.id,
@@ -270,11 +291,9 @@ class CallJoinView(APIView):
             "status": call.status,
             "caller_uid": call.uid,
             "callee_uid": call.callee_uid,
-            "token": call.token,
-            "executive_token": call.executive_token,
+            "token": call.executive_token,  # Executive uses executive_token
             "joined_at": call.joined_at,
         }, status=status.HTTP_200_OK)
-
 
 
 class RejectCallViewUser(APIView):
