@@ -48,7 +48,7 @@ class RechargePlanSerializer(serializers.ModelSerializer):
 class UserRechargeSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserRecharge
-        fields = ["id", "user", "plan", "coins_added", "amount_paid", "created_at", "is_successful"]
+        fields = ["id", "user", "plan", "coins_added", "amount_paid", "created_at", "is_successful","by_admin"]
         read_only_fields = ["coins_added", "amount_paid", "created_at"]
 
 

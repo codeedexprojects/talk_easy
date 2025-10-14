@@ -145,20 +145,20 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 #databases
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.mysql',
-#         'NAME': 'talk_easy',
-#         'USER': 'root',
-#         'PASSWORD':'@1234567890',
-#         'HOST':'127.0.0.1',
-#         'PORT':'3306',
-#         'OPTIONS': {
-#             'charset': 'utf8mb4',  
-#             'use_unicode': True,
-#         },
-#     }
-# }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'talk_easy',
+        'USER': 'root',
+        'PASSWORD':'@1234567890',
+        'HOST':'127.0.0.1',
+        'PORT':'3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',  
+            'use_unicode': True,
+        },
+    }
+}
 
 # DATABASES = {
 #     'default': {
@@ -177,20 +177,20 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 #prod
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'talkeasytest',
-        'USER': 'admin',
-        'PASSWORD':'admin123',
-        'HOST':'talkeasytest.cluster-crk0828so75f.ap-south-1.rds.amazonaws.com',
-        'PORT':'3306',
-        'OPTIONS': {
-            'charset': 'utf8mb4',  
-            'use_unicode': True,
-        },
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.mysql',
+#         'NAME': 'talkeasytest',
+#         'USER': 'admin',
+#         'PASSWORD':'admin123',
+#         'HOST':'talkeasytest.cluster-crk0828so75f.ap-south-1.rds.amazonaws.com',
+#         'PORT':'3306',
+#         'OPTIONS': {
+#             'charset': 'utf8mb4',  
+#             'use_unicode': True,
+#         },
+#     }
+# }
 
 
 
@@ -263,3 +263,5 @@ CHANNEL_LAYERS = {
 }
 
 
+RAZORPAY_KEY_ID = "rzp_test_XXXXXXXXXXXX"
+RAZORPAY_KEY_SECRET = "xxxxxxxxxxxxxxxxxxxx"

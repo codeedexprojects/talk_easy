@@ -42,23 +42,63 @@ class RechargePlan(models.Model):
 
 from users.models import UserProfile
 
+from django.db import models
+from decimal import Decimal
+
 class UserRecharge(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("successful", "Successful"),
+        ("failed", "Failed"),
+    ]
+
     user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name="recharges")
     plan = models.ForeignKey(RechargePlan, on_delete=models.CASCADE)
     coins_added = models.PositiveIntegerField()
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
-    is_successful = models.BooleanField(default=True) 
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Payment Tracking
+    razorpay_order_id = models.CharField(max_length=255, blank=True, null=True)
+    razorpay_payment_id = models.CharField(max_length=255, blank=True, null=True)
+    razorpay_signature = models.CharField(max_length=255, blank=True, null=True)
+    payment_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    # Flags
+    is_successful = models.BooleanField(default=False)
+    by_admin = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
-        if self.is_successful:
+        super().save(*args, **kwargs)
+
+        if self.is_successful and self.payment_status == "successful":
             if hasattr(self.user, "stats"):
                 self.user.stats.coin_balance += self.coins_added
                 self.user.stats.save(update_fields=["coin_balance"])
-        super().save(*args, **kwargs)
+
+    def mark_as_successful(self, payment_id=None, signature=None):
+        self.razorpay_payment_id = payment_id
+        self.razorpay_signature = signature
+        self.payment_status = "successful"
+        self.is_successful = True
+        self.save(update_fields=[
+            "razorpay_payment_id",
+            "razorpay_signature",
+            "payment_status",
+            "is_successful",
+            "updated_at"
+        ])
+
+    def mark_as_failed(self):
+        self.payment_status = "failed"
+        self.is_successful = False
+        self.save(update_fields=["payment_status", "is_successful", "updated_at"])
 
     def __str__(self):
-        return f"{self.user} - {self.plan.plan_name} ({self.coins_added} coins)"
+        status_label = self.get_payment_status_display()
+        return f"{self.user} - {self.plan.plan_name} | {self.coins_added} coins | {status_label}"
+
 
 
 class RedemptionOption(models.Model):

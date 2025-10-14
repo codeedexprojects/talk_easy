@@ -30,4 +30,3 @@ urlpatterns = [
     path("admin/executive-call-history/<int:executive_id>/",AdminExecutiveCallHistoryAPIView.as_view(),name="admin-executive-call-history"),
 ]
 
-
