@@ -926,6 +926,7 @@ class BannedUserListView(ListAPIView):
     queryset = UserProfile.objects.filter(is_banned=True, is_deleted=False).order_by('-created_at')
     serializer_class = BannedUserSerializer
     permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
     pagination_class = CustomUserPagination 
 
 class FilteredUserListView(APIView):
