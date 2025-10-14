@@ -185,7 +185,8 @@ class VerifyRechargePaymentView(APIView):
             return Response({"error": "Pending recharge not found"}, status=status.HTTP_404_NOT_FOUND)
 
 class RedemptionOptionListCreateAPIView(APIView):
-    permission_classes=[]
+    permission_classes=[IsAdminUser]
+    authentication_classes=[JWTAuthentication]
 
     def get(self, request):
         options = RedemptionOption.objects.filter(is_deleted=False)
