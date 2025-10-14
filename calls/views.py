@@ -660,3 +660,4 @@ class CallDetailAPIView(generics.RetrieveAPIView):
 
         serializer = self.get_serializer(call)
         return Response(serializer.data)
+    

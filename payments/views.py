@@ -8,6 +8,8 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from executives.authentication import ExecutiveTokenAuthentication
 from django.utils.timezone import now
 from rest_framework.permissions import IsAdminUser
+import razorpay
+from django.conf import settings
 
 
 #  Category Create & List
@@ -82,6 +84,10 @@ class RechargePlansView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+razorpay_client = razorpay.Client(
+    auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+)
+
 class UserRechargeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -95,23 +101,88 @@ class UserRechargeView(APIView):
             return Response({"error": "Invalid recharge plan"}, status=status.HTTP_400_BAD_REQUEST)
 
         coins_to_add = plan.get_adjusted_coin_package()
-        amount_to_pay = plan.calculate_final_price()
+        amount_to_pay = plan.calculate_final_price() 
+
+        # Razorpay expects amount in paise (integer)
+        razorpay_amount = int(amount_to_pay * 100)
+
+        # Create Razorpay order
+        try:
+            razorpay_order = razorpay_client.order.create({
+                "amount": razorpay_amount,
+                "currency": "INR",
+                "payment_capture": 1,  
+                "notes": {
+                    "user_id": str(user.id),
+                    "plan_name": plan.plan_name,
+                    "coins_to_add": coins_to_add
+                }
+            })
+        except Exception as e:
+            return Response({"error": f"Failed to create Razorpay order: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         recharge = UserRecharge.objects.create(
             user=user,
             plan=plan,
             coins_added=coins_to_add,
             amount_paid=amount_to_pay,
-            is_successful=True  
+            is_successful=False  
         )
 
         return Response({
-            "message": "Recharge successful",
-            "coins_added": coins_to_add,
-            "amount_paid": float(amount_to_pay),
-            "current_coin_balance": user.stats.coin_balance
+            "message": "Razorpay order created successfully",
+            "order_id": razorpay_order["id"],
+            "amount": float(amount_to_pay),
+            "currency": "INR",
+            "razorpay_key": settings.RAZORPAY_KEY_ID,
+            "coins_to_add": coins_to_add,
         }, status=status.HTTP_200_OK)
     
+
+import hmac
+import hashlib
+
+class VerifyRechargePaymentView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        razorpay_order_id = request.data.get("razorpay_order_id")
+        razorpay_payment_id = request.data.get("razorpay_payment_id")
+        razorpay_signature = request.data.get("razorpay_signature")
+
+        if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+            return Response({"error": "Missing payment details"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify the signature
+        try:
+            generated_signature = hmac.new(
+                settings.RAZORPAY_KEY_SECRET.encode(),
+                f"{razorpay_order_id}|{razorpay_payment_id}".encode(),
+                hashlib.sha256
+            ).hexdigest()
+
+            if generated_signature != razorpay_signature:
+                return Response({"error": "Invalid signature verification"}, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({"error": f"Signature verification failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Mark recharge as successful
+        try:
+            recharge = UserRecharge.objects.filter(user=user, is_successful=False).latest('created_at')
+            recharge.is_successful = True
+            recharge.save()
+
+            return Response({
+                "message": "Payment verified and recharge successful",
+                "coins_added": recharge.coins_added,
+                "amount_paid": float(recharge.amount_paid),
+                "current_coin_balance": user.stats.coin_balance
+            }, status=status.HTTP_200_OK)
+
+        except UserRecharge.DoesNotExist:
+            return Response({"error": "Pending recharge not found"}, status=status.HTTP_404_NOT_FOUND)
 
 class RedemptionOptionListCreateAPIView(APIView):
     permission_classes=[]
@@ -265,7 +336,6 @@ class AdminRedeemListUpdateAPIView(APIView):
         if serializer.is_valid():
             redeem = serializer.save()
 
-            # If status changed to approved or paid → set processed_at
             if redeem.status in ["approved", "rejected", "paid"]:
                 redeem.processed_at = now()
                 redeem.save()
@@ -273,3 +343,84 @@ class AdminRedeemListUpdateAPIView(APIView):
             return Response(AdminRedeemManageSerializer(redeem).data)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class UserRechargeHistoryViewAdmin(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]  
+
+    def get(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        recharges = UserRecharge.objects.filter(user=user).order_by('-created_at')
+        serializer = UserRechargeSerializer(recharges, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class UserRechargeHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        recharges = UserRecharge.objects.filter(user=user).order_by('-created_at')
+        serializer = UserRechargeSerializer(recharges, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class AdminRechargeView(APIView):
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+
+    def post(self, request):
+        user_id = request.data.get("user_id")
+        plan_id = request.data.get("plan_id")
+        coins_to_add = request.data.get("coins_added")
+        amount_paid = request.data.get("amount_paid")
+
+        if not user_id:
+            return Response({"error": "user_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # # Optional: allow using a plan, or custom input
+        # plan = None
+        # if plan_id:
+        #     try:
+        #         plan = RechargePlan.objects.get(id=plan_id, is_active=True, is_deleted=False)
+        #         coins_to_add = coins_to_add or plan.get_adjusted_coin_package()
+        #         amount_paid = amount_paid or plan.calculate_final_price()
+        #     except RechargePlan.DoesNotExist:
+        #         return Response({"error": "Invalid recharge plan"}, status=status.HTTP_400_BAD_REQUEST)
+        # else:
+        #     if not all([coins_to_add, amount_paid]):
+        #         return Response(
+        #             {"error": "Either plan_id or both coins_added and amount_paid are required"},
+        #             status=status.HTTP_400_BAD_REQUEST,
+        #         )
+
+        recharge = UserRecharge.objects.create(
+            user=user,
+            plan=RechargePlan,
+            coins_added=coins_to_add,
+            amount_paid=amount_paid,
+            is_successful=True,
+            by_admin=True,
+            payment_status="successful",
+        )
+
+        if hasattr(user, "stats"):
+            user.stats.coin_balance += int(coins_to_add)
+            user.stats.save(update_fields=["coin_balance"])
+
+        return Response({
+            "message": f"Recharge successful for user {user}",
+            "coins_added": int(coins_to_add),
+            "amount_paid": float(amount_paid),
+            "current_coin_balance": user.stats.coin_balance,
+        }, status=status.HTTP_200_OK)

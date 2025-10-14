@@ -813,3 +813,13 @@ class BlockedUsersListByExecutiveAPIView(APIView):
             "total_blocked": blocked_users.count(),
             "blocked_users": serializer.data
         }, status=status.HTTP_200_OK)
+    
+
+class AllBlockedUsersListView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes=[JWTAuthentication]
+
+    def get(self, request):
+        blocked_users = BlockedusersByExecutive.objects.filter(is_blocked=True).select_related('user', 'executive')
+        serializer = BlockedUsersSerializer(blocked_users, many=True)
+        return Response(serializer.data)

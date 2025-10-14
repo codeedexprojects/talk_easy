@@ -921,3 +921,42 @@ class CarouselImageListAPIView(APIView):
             for img in images
         ]
         return Response({"carousel_images": data}, status=status.HTTP_200_OK)
+    
+class BannedUserListView(ListAPIView):
+    queryset = UserProfile.objects.filter(is_banned=True, is_deleted=False).order_by('-created_at')
+    serializer_class = BannedUserSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = CustomUserPagination 
+
+class FilteredUserListView(APIView):
+    permission_classes = []  
+    authentication_classes=[]
+
+    def get(self, request):
+        status = request.query_params.get("status")
+
+        if status == "banned":
+            users = UserProfile.objects.filter(is_banned=True)
+        elif status == "suspended":
+            users = UserProfile.objects.filter(is_suspended=True)
+        elif status == "active":
+            users = UserProfile.objects.filter(is_banned=False, is_suspended=False, is_active=True)
+        else:
+            return Response({"error": "Invalid or missing 'status' parameter. Use 'banned', 'suspended', or 'active'."}, status=400)
+
+        serializer = UserProfileSerializer(users, many=True)
+        return Response(serializer.data)
+    
+
+class UserSpecificRatingsView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+    def get(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        ratings = Rating.objects.filter(user=user).select_related('user', 'executive').order_by('-created_at')
+        serializer = RatingSerializer(ratings, many=True)
+        return Response(serializer.data)
