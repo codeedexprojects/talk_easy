@@ -921,3 +921,9 @@ class CarouselImageListAPIView(APIView):
             for img in images
         ]
         return Response({"carousel_images": data}, status=status.HTTP_200_OK)
+    
+class BannedUserListView(ListAPIView):
+    queryset = UserProfile.objects.filter(is_banned=True, is_deleted=False).order_by('-created_at')
+    serializer_class = BannedUserSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = CustomUserPagination 

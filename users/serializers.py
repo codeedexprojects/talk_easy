@@ -183,3 +183,17 @@ class Executivelistserializer(serializers.ModelSerializer):
     def get_average_rating(self, obj):
             avg_rating = Rating.objects.filter(executive=obj).aggregate(Avg("rating"))["rating__avg"]
             return round(avg_rating, 1) if avg_rating else None
+
+
+class BannedUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "id",
+            "user_id",
+            "name",
+            "email",
+            "mobile_number",
+            "is_banned",
+            "created_at",
+        ]
