@@ -79,7 +79,7 @@ class CallHistorySerializer(serializers.ModelSerializer):
         model = AgoraCallHistory
         fields = [
             "id", "channel_name", "status", "start_time", "end_time","token","executive_token",
-            "duration_seconds", "coins_deducted", "executive_earnings",
+            "duration_seconds", "coins_deducted", "executive_earnings","callee_uid",
             "user_name", "executive_name","user","user_id","executive","executive_id","is_blocked"
         ]
 
