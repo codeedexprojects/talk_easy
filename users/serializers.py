@@ -32,7 +32,19 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 class UserStatusUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ['is_suspended', 'is_banned']  
+        fields = ['is_suspended', 'is_banned']
+
+    def update(self, instance, validated_data):
+        instance.is_suspended = validated_data.get('is_suspended', instance.is_suspended)
+        instance.is_banned = validated_data.get('is_banned', instance.is_banned)
+
+        if instance.is_banned or instance.is_suspended:
+            instance.is_active = False
+        else:
+            instance.is_active = True
+
+        instance.save()
+        return instance
 
 from executives.models import Executive
 class ExecutiveFavoSerializer(serializers.ModelSerializer):

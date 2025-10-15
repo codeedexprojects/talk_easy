@@ -46,5 +46,6 @@ urlpatterns = [
     path("executive/blocked-users/", BlockedUsersListAPIView.as_view(), name="blocked-users"),
     path('blocked-users/', AllBlockedUsersListView.as_view(), name='all-blocked-users'),
     path('search/', ExecutiveSearchView.as_view(), name='executive-search'),
+    path('analytics/', ExecutiveAnalyticsView.as_view(), name='executive-analytics'),
 
 ]

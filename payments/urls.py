@@ -29,5 +29,6 @@ urlpatterns = [
     path('recharge-history/', UserRechargeHistoryView.as_view(), name='recharge-history'),#user
 
     path('admin/recharge/', AdminRechargeView.as_view(), name='admin-recharge'),#recharge by admin
+    path('analytics/', RechargeAnalyticsView.as_view(), name='recharge-analytics'),
 
 ]

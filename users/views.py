@@ -333,9 +333,9 @@ class ExecutiveListAPIView(APIView):
 
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
-
+from rest_framework.permissions import IsAdminUser
 class UpdateUserStatusAPIView(APIView):
-    permission_classes = [IsAuthenticated] 
+    permission_classes = [IsAdminUser] 
     authentication_classes = [JWTAuthentication]
 
     def patch(self, request, user_id):
@@ -352,6 +352,7 @@ class UpdateUserStatusAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response({"detail": "User status updated successfully.", "status": True}, status=status.HTTP_200_OK)
+        
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -964,8 +965,8 @@ class UserSpecificRatingsView(APIView):
     
 
 class UserSearchView(APIView):
-    permission_classes = [IsAdminUser]  
-    authentication_classes = [JWTAuthentication]
+    permission_classes = []  
+    authentication_classes = []
 
     def get(self, request):
         query = request.query_params.get("q", "").strip()
@@ -988,3 +989,28 @@ class UserSearchView(APIView):
 
         serializer = UserProfileSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class UserAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes=[JWTAuthentication]
+
+    def get(self, request):
+        try:
+            total_users = UserProfile.objects.count()
+            active_users = UserProfile.objects.filter(is_active=True).count()
+            banned_users = UserProfile.objects.filter(is_banned=True).count()
+            suspended_users = UserProfile.objects.filter(is_suspended=True).count()
+
+            data = {
+                "total_users": total_users,
+                "active_users": active_users,
+                "banned_users": banned_users,
+                "suspended_users": suspended_users,
+            }
+
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

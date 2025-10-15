@@ -431,3 +431,64 @@ class AdminRechargeView(APIView):
             "amount_paid": amount_paid,
             "current_coin_balance": user.stats.coin_balance,
         }, status=status.HTTP_200_OK)
+    
+from django.utils import timezone
+from django.db.models import Sum
+
+
+class RechargeAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        try:
+            today = timezone.now().date()
+
+            successful_user_recharges = UserRecharge.objects.filter(
+                is_successful=True,
+                by_admin=False
+            )
+
+            today_stats = successful_user_recharges.filter(
+                created_at__date=today
+            ).aggregate(
+                today_coins=Sum('coins_added'),
+                today_revenue=Sum('amount_paid')
+            )
+            today_coin_sales = today_stats['today_coins'] or 0
+            today_revenue = float(today_stats['today_revenue'] or 0)
+
+            total_coin_sales = successful_user_recharges.aggregate(
+                total_coins=Sum('coins_added')
+            )['total_coins'] or 0
+
+            total_revenue = float(successful_user_recharges.aggregate(
+                total_amount=Sum('amount_paid')
+            )['total_amount'] or 0)
+
+            admin_recharges = UserRecharge.objects.filter(
+                is_successful=True,
+                by_admin=True
+            )
+
+            admin_spent_amount = float(admin_recharges.aggregate(
+                total_amount=Sum('amount_paid')
+            )['total_amount'] or 0)
+
+            admin_coins_spent = admin_recharges.aggregate(
+                total_coins=Sum('coins_added')
+            )['total_coins'] or 0
+
+            data = {
+                "today_coin_sales": today_coin_sales,
+                "today_revenue": today_revenue,
+                "total_coin_sales": total_coin_sales,
+                "total_revenue": total_revenue,
+                "admin_spent_amount": admin_spent_amount,
+                "admin_coins_spent": admin_coins_spent
+            }
+
+            return Response(data, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
