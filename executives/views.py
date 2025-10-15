@@ -823,3 +823,59 @@ class AllBlockedUsersListView(APIView):
         blocked_users = BlockedusersByExecutive.objects.filter(is_blocked=True).select_related('user', 'executive')
         serializer = BlockedUsersSerializer(blocked_users, many=True)
         return Response(serializer.data)
+    
+
+class ExecutiveSearchView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]  
+
+    def get(self, request):
+        query = request.query_params.get('query', '').strip()
+
+        if not query:
+            return Response({"error": "Please provide a search query."}, status=status.HTTP_400_BAD_REQUEST)
+
+        executives = Executive.objects.filter(
+            Q(executive_id__icontains=query) |
+            Q(name__icontains=query) |
+            Q(mobile_number__icontains=query) |
+            Q(email_id__icontains=query) |
+            Q(profession__icontains=query) |
+            Q(place__icontains=query)
+        ).order_by('name')
+
+        serializer = ExecutiveSerializer(executives, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+class ExecutiveAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes =[JWTAuthentication]
+
+    def get(self, request):
+        try:
+            today = timezone.now()
+            ten_days_ago = today - timedelta(days=10)
+
+            total_executives = Executive.objects.count()
+            online_executives = Executive.objects.filter(is_online=True).count()
+            banned_executives = Executive.objects.filter(is_banned=True).count()
+            active_executives = Executive.objects.filter(online=True).count()
+            suspended_executives = Executive.objects.filter(is_suspended=True).count()
+            recent_executives = Executive.objects.filter(created_at__gte=ten_days_ago).count()
+
+            data = {
+                "total_executives": total_executives,
+                "online_executives": online_executives,
+                "active_executives":active_executives,
+                "banned_executives": banned_executives,
+                "suspended_executives": suspended_executives,
+                "recently_joined_last_10_days": recent_executives,
+            }
+
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

@@ -665,6 +665,8 @@ class AdminUserCallHistoryAPIView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 from rest_framework.exceptions import NotFound
+from django.db.models import Sum
+
 class CallDetailAPIView(generics.RetrieveAPIView):
     queryset = AgoraCallHistory.objects.select_related("user", "executive").all()
     serializer_class = AgoraCallHistorySerializer
@@ -680,3 +682,51 @@ class CallDetailAPIView(generics.RetrieveAPIView):
         serializer = self.get_serializer(call)
         return Response(serializer.data)
     
+
+class CallAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        try:
+            today = timezone.now().date()
+            
+            on_call_count = AgoraCallHistory.objects.filter(status='joined').count()
+
+            total_calls = AgoraCallHistory.objects.filter(status='ended').count()
+
+            today_calls = AgoraCallHistory.objects.filter(
+                status='ended', start_time__date=today
+            ).count()
+
+            total_talk_time_sec = AgoraCallHistory.objects.filter(status='ended').aggregate(
+                total_duration=Sum('duration_seconds')
+            )['total_duration'] or 0
+
+            today_talk_time_sec = AgoraCallHistory.objects.filter(
+                status='ended', start_time__date=today
+            ).aggregate(total_duration=Sum('duration_seconds'))['total_duration'] or 0
+
+            total_talk_time_min = round(total_talk_time_sec / 60, 2)
+            today_talk_time_min = round(today_talk_time_sec / 60, 2)
+            total_missed_calls = AgoraCallHistory.objects.filter(status='missed').count()
+            today_missed_calls = AgoraCallHistory.objects.filter(
+                status='missed', start_time__date=today
+            ).count()
+
+            data = {
+                "on_call_count": on_call_count,
+                "total_calls": total_calls,
+                "today_calls": today_calls,
+                "total_talk_time_seconds": total_talk_time_sec,
+                "total_talk_time_minutes": total_talk_time_min,
+                "today_talk_time_seconds": today_talk_time_sec,
+                "today_talk_time_minutes": today_talk_time_min,
+                "total_missed_calls": total_missed_calls,
+                "today_missed_calls": today_missed_calls
+            }
+
+            return Response(data, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
