@@ -74,57 +74,75 @@ class AgoraCallHistory(models.Model):
 
     def end_call(self, ender="client", request_id=None):
         if self.end_time:
-            return  # already ended
+            return  # Call already ended
 
-        self.end_time = timezone.now()
+        now_time = timezone.now()
+        self.end_time = now_time
 
-        if self.joined_at:
-            self.duration = self.end_time - self.joined_at
-
-        duration_seconds = int(self.duration.total_seconds()) if self.duration else 0
+        # Calculate call duration
+        base_start = self.joined_at or self.start_time
+        self.duration = (now_time - base_start) if base_start else timedelta()
+        duration_seconds = int(self.duration.total_seconds())
         self.duration_seconds = duration_seconds
 
-        #  Deduct coins from user
+        # ----------------------------
+        # Deduct coins from user
+        # ----------------------------
         coins_to_deduct = int(Decimal(duration_seconds) * Decimal(str(self.coins_per_second)))
         self.coins_deducted = coins_to_deduct
+
         if hasattr(self.user, "stats"):
             user_stats = self.user.stats
             user_stats.coin_balance = max(0, user_stats.coin_balance - coins_to_deduct)
-            user_stats.save(update_fields=["coin_balance"])
-
-        #  Compute executive earnings
-        amount_per_second = (Decimal(str(self.amount_per_min)) / Decimal("60")).quantize(
-            Decimal("0.01"), rounding=ROUND_DOWN
-        )
-        earnings = (Decimal(duration_seconds) * amount_per_second).quantize(
-            Decimal("0.01"), rounding=ROUND_DOWN
-        )
-        self.executive_earnings = earnings
-
-        # Update executive stats
-        if hasattr(self.executive, "stats"):
-            exec_stats = self.executive.stats
-            exec_stats.total_earnings = (exec_stats.total_earnings or Decimal("0")) + earnings
-            exec_stats.earnings_today = (exec_stats.earnings_today or Decimal("0")) + earnings
-            exec_stats.pending_payout = (exec_stats.pending_payout or Decimal("0")) + earnings
-            exec_stats.total_talk_seconds_today += duration_seconds
-            exec_stats.save(update_fields=[
-                "total_earnings", "earnings_today", "pending_payout", "total_talk_seconds_today"
+            user_stats.total_calls += 1
+            user_stats.total_call_seconds += duration_seconds
+            if self.end_time.date() == timezone.now().date():
+                user_stats.total_call_seconds_today += duration_seconds
+            user_stats.save(update_fields=[
+                "coin_balance",
+                "total_calls",
+                "total_call_seconds",
+                "total_call_seconds_today"
             ])
 
-        # Reset executive on_call
-        self.executive.on_call = False
-        self.executive.save(update_fields=["on_call"])
+        earnings = Decimal("0.0")
+        if hasattr(self.executive, "stats"):
+            exec_stats = self.executive.stats
 
-        # End the call
-        self.is_active = False
-        self.status = "ended"
-        self.ended_by = ender
-        self.end_request_id = request_id
-        self.save(update_fields=[
-            "is_active", "status", "end_time", "duration", "duration_seconds",
-            "coins_deducted", "executive_earnings", "ended_by", "end_request_id"
-        ])
+            # Increment picked calls
+            exec_stats.total_picked_calls += 1
+
+            # Talk/duration
+            exec_stats.total_talk_seconds_today += duration_seconds
+            exec_stats.total_talk_seconds += duration_seconds  # all-time
+            if getattr(self.executive, "is_online", False):
+                exec_stats.total_on_duty_seconds += duration_seconds
+
+            # Calculate earnings
+            amount_per_second = (Decimal(str(self.amount_per_min)) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            self.executive_earnings = earnings
+
+            # Update executive stats
+            exec_stats.total_earnings += earnings
+            if self.end_time.date() == timezone.now().date():
+                exec_stats.earnings_today += earnings
+            exec_stats.vault_Balance += int(earnings)
+            exec_stats.pending_payout += earnings
+            exec_stats.save(update_fields=[
+                "total_picked_calls",
+                "total_talk_seconds",
+                "total_talk_seconds_today",
+                "total_on_duty_seconds",
+                "total_earnings",
+                "earnings_today",
+                "vault_Balance",
+                "pending_payout"
+            ])
+
+        if hasattr(self.executive, "on_call"):
+            self.executive.on_call = False
+            self.executive.save(update_fields=["on_call"])
 
     def deduct_coins(self, coins):
         if self.user.coin_balance <= 0:

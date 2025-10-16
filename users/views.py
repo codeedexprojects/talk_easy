@@ -359,7 +359,7 @@ class UpdateUserStatusAPIView(APIView):
 from django.shortcuts import get_object_or_404
 
 class RatingExecutiveView(APIView):
-    permission_classes = []
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, executive_id, *args, **kwargs):
         executive = get_object_or_404(Executive, id=executive_id)
@@ -459,7 +459,8 @@ class CareerDetailView(APIView):
         return Response({"message": "Career entry deleted successfully."}, status=status.HTTP_200_OK)
     
 class CarouselImageListCreateView(APIView):
-    permission_classes=[]
+    permission_classes=[IsAdminUser]
+    authentication_classes=[JWTAuthentication]
     def get(self, request):
         images = CarouselImage.objects.all()
         serializer = CarouselImageSerializer(images, many=True, context={'request': request})
