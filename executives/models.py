@@ -79,6 +79,7 @@ class ExecutiveStats(models.Model):
 
     # Call tracking
     total_on_duty_seconds = models.PositiveIntegerField(default=0)
+    total_talk_seconds = models.PositiveIntegerField(default=0)
     total_talk_seconds_today = models.PositiveIntegerField(default=0)
     total_picked_calls = models.PositiveIntegerField(default=0)
     total_missed_calls = models.PositiveIntegerField(default=0)
