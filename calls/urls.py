@@ -29,6 +29,6 @@ urlpatterns = [
     path("admin/user-call-history/<int:user_id>/", AdminUserCallHistoryAPIView.as_view(),name="admin-user-call-history",),
     path("admin/executive-call-history/<int:executive_id>/",AdminExecutiveCallHistoryAPIView.as_view(),name="admin-executive-call-history"),
     path('analytics/', CallAnalyticsView.as_view(), name='call-analytics'),
-
+    path("leave_joined/", LeaveJoinedCallsView.as_view(), name="leave-joined-calls"),
 ]
 

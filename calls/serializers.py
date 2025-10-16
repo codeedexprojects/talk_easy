@@ -60,6 +60,10 @@ class CallInitiateSerializer(serializers.Serializer):
     executive_id = serializers.IntegerField(required=True)
     channel_name = serializers.CharField(required=True)
     caller_uid = serializers.IntegerField(required=True)
+    
+
+
+
 
 class CallRatingSerializer(serializers.ModelSerializer):
     class Meta:

@@ -97,7 +97,7 @@ class CallInitiateView(APIView):
             exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
             rate_per_minute = exec_stats.amount_per_min
             coins_per_second = exec_stats.coins_per_second
-
+            executive_code = executive.executive_id
             # Create call history
             call_history = AgoraCallHistory.objects.create(
                 executive=executive,
@@ -122,6 +122,7 @@ class CallInitiateView(APIView):
             return Response({
                 "id": call_history.id,
                 "executive_id": executive_id,
+                "executive_code":executive_code,
                 "channel_name": channel_name,
                 "caller_uid": caller_uid,
                 "token": caller_token,
@@ -730,3 +731,62 @@ class CallAnalyticsView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=500)
+        
+
+class LeaveJoinedCallsView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user_id = request.data.get("user_id")
+        executive_id = request.data.get("executive_id")
+
+        if not user_id and not executive_id:
+            return Response({"error": "Provide at least user_id or executive_id."}, status=400)
+
+        # Filter calls with status 'joined'
+        active_calls = AgoraCallHistory.objects.filter(status="joined")
+        if user_id:
+            active_calls = active_calls.filter(user_id=user_id)
+        if executive_id:
+            active_calls = active_calls.filter(executive_id=executive_id)
+
+        if not active_calls.exists():
+            return Response({"message": "No joined calls found for the provided IDs."}, status=200)
+
+        ended_calls = []
+        for call in active_calls:
+            call.end_call(ender="system")
+            reason = "Call ended by system via LeaveJoinedCalls API"
+            self.notify_end_call(call, reason)
+            ended_calls.append(call.id)
+
+        return Response({
+            "ok": True,
+            "message": f"Ended {len(ended_calls)} joined calls.",
+            "ended_call_ids": ended_calls
+        })
+
+    def notify_end_call(self, call, reason):
+        """
+        Send WebSocket updates to both user and executive clients
+        to indicate the call has ended.
+        """
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                    async_to_sync(channel_layer.group_send)(
+                        group_name,
+                        {
+                            "type": "call_ended",
+                            "call_id": call.id,
+                            "reason": reason,
+                            "ended_by": call.ended_by,
+                            "coins_deducted": call.coins_deducted,
+                            "executive_earnings": float(call.executive_earnings),
+                            "duration_seconds": call.duration_seconds,
+                        }
+                    )
+        except Exception as e:
+            print(f"WebSocket notification failed: {e}")
