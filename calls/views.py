@@ -790,3 +790,13 @@ class LeaveJoinedCallsView(APIView):
                     )
         except Exception as e:
             print(f"WebSocket notification failed: {e}")
+
+
+class OngoingCallsView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+
+    def get(self, request):
+        ongoing_calls = AgoraCallHistory.objects.filter(status="joined", is_active=True)
+        serializer = AgoraCallHistorySerializer(ongoing_calls, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
