@@ -256,8 +256,8 @@ class CallJoinView(APIView):
         except AgoraCallHistory.DoesNotExist:
             return Response({"error": "Call not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Verify the executive making the request is the one assigned to this call
-        executive = request.user  # Assuming ExecutiveTokenAuthentication sets request.user
+        
+        executive = request.user  
         if call.executive.id != executive.id:
             return Response(
                 {"error": "Unauthorized to join this call"}, 
