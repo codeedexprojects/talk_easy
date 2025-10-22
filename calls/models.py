@@ -73,8 +73,9 @@ class AgoraCallHistory(models.Model):
         return (ended_at - base_start) if ended_at and base_start else timezone.timedelta()
 
     def end_call(self, ender="client", request_id=None):
-        if self.end_time:
-            return  # Call already ended
+    # Prevent duplicate endings
+        if self.status == "ended" or not self.is_active:
+            return  
 
         now_time = timezone.now()
         self.end_time = now_time
@@ -85,9 +86,7 @@ class AgoraCallHistory(models.Model):
         duration_seconds = int(self.duration.total_seconds())
         self.duration_seconds = duration_seconds
 
-        # ----------------------------
         # Deduct coins from user
-        # ----------------------------
         coins_to_deduct = int(Decimal(duration_seconds) * Decimal(str(self.coins_per_second)))
         self.coins_deducted = coins_to_deduct
 
@@ -105,25 +104,20 @@ class AgoraCallHistory(models.Model):
                 "total_call_seconds_today"
             ])
 
+        # Executive earnings
         earnings = Decimal("0.0")
         if hasattr(self.executive, "stats"):
             exec_stats = self.executive.stats
-
-            # Increment picked calls
             exec_stats.total_picked_calls += 1
-
-            # Talk/duration
             exec_stats.total_talk_seconds_today += duration_seconds
-            exec_stats.total_talk_seconds += duration_seconds  # all-time
+            exec_stats.total_talk_seconds += duration_seconds
             if getattr(self.executive, "is_online", False):
                 exec_stats.total_on_duty_seconds += duration_seconds
 
-            # Calculate earnings
             amount_per_second = (Decimal(str(self.amount_per_min)) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
             earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
             self.executive_earnings = earnings
 
-            # Update executive stats
             exec_stats.total_earnings += earnings
             if self.end_time.date() == timezone.now().date():
                 exec_stats.earnings_today += earnings
@@ -140,23 +134,29 @@ class AgoraCallHistory(models.Model):
                 "pending_payout"
             ])
 
+        # Mark executive as free
         if hasattr(self.executive, "on_call"):
             self.executive.on_call = False
             self.executive.save(update_fields=["on_call"])
 
-    def deduct_coins(self, coins):
-        if self.user.coin_balance <= 0:
-            self.end_call(ender="system")
-            return False
+        # ✅ Mark call as ended
+        self.status = "ended"
+        self.is_active = False
+        self.ended_by = ender
+        if request_id:
+            self.end_request_id = request_id
 
-        # Deduct coins
-        self.user.coin_balance -= coins
-        self.user.save(update_fields=["coin_balance"])
-
-        if self.user.coin_balance <= 0:
-            self.end_call(ender="system")
-            return False
-        return True
+        self.save(update_fields=[
+            "end_time",
+            "duration",
+            "duration_seconds",
+            "coins_deducted",
+            "executive_earnings",
+            "status",
+            "is_active",
+            "ended_by",
+            "end_request_id"
+        ])
 
 
 
