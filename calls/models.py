@@ -33,7 +33,7 @@ class AgoraCallHistory(models.Model):
     end_time = models.DateTimeField(null=True, blank=True)
     duration = models.DurationField(null=True, blank=True)
 
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending", db_index=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="ringing", db_index=True)
     is_active = models.BooleanField(default=True, db_index=True)
 
     uid = models.IntegerField()                   
@@ -73,20 +73,17 @@ class AgoraCallHistory(models.Model):
         return (ended_at - base_start) if ended_at and base_start else timezone.timedelta()
 
     def end_call(self, ender="client", request_id=None):
-    # Prevent duplicate endings
         if self.status == "ended" or not self.is_active:
             return  
 
         now_time = timezone.now()
         self.end_time = now_time
 
-        # Calculate call duration
         base_start = self.joined_at or self.start_time
         self.duration = (now_time - base_start) if base_start else timedelta()
         duration_seconds = int(self.duration.total_seconds())
         self.duration_seconds = duration_seconds
 
-        # Deduct coins from user
         coins_to_deduct = int(Decimal(duration_seconds) * Decimal(str(self.coins_per_second)))
         self.coins_deducted = coins_to_deduct
 
@@ -104,7 +101,6 @@ class AgoraCallHistory(models.Model):
                 "total_call_seconds_today"
             ])
 
-        # Executive earnings
         earnings = Decimal("0.0")
         if hasattr(self.executive, "stats"):
             exec_stats = self.executive.stats
@@ -134,12 +130,10 @@ class AgoraCallHistory(models.Model):
                 "pending_payout"
             ])
 
-        # Mark executive as free
         if hasattr(self.executive, "on_call"):
             self.executive.on_call = False
             self.executive.save(update_fields=["on_call"])
 
-        # ✅ Mark call as ended
         self.status = "ended"
         self.is_active = False
         self.ended_by = ender
