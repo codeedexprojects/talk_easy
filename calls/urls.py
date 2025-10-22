@@ -30,5 +30,7 @@ urlpatterns = [
     path("admin/executive-call-history/<int:executive_id>/",AdminExecutiveCallHistoryAPIView.as_view(),name="admin-executive-call-history"),
     path('analytics/', CallAnalyticsView.as_view(), name='call-analytics'),
     path("leave_joined/", LeaveJoinedCallsView.as_view(), name="leave-joined-calls"),
+    path('ongoing/', OngoingCallsView.as_view(), name='ongoing-calls'),
+
 ]
 
