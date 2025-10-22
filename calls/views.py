@@ -248,7 +248,7 @@ class CallJoinView(APIView):
         try:
             call = AgoraCallHistory.objects.get(id=call_id)
             # Only allow joining if call is ringing
-            if call.status != "ringing":
+            if call.status not in ["pending", "ringing"]:
                 return Response(
                     {"error": f"Call cannot be joined. Current status: {call.status}"}, 
                     status=status.HTTP_400_BAD_REQUEST
@@ -492,7 +492,7 @@ class RecentExecutiveCallsAPIView(APIView):
 
         pending_calls = AgoraCallHistory.objects.filter(
             executive=executive,
-            status="pending"
+            status="ringing"
         ).order_by("-start_time").first()
 
         serializer = CallHistorySerializer(pending_calls)
