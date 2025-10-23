@@ -122,3 +122,33 @@ class AgoraCallHistorySerializer(serializers.ModelSerializer):
             "ended_by",
             "end_request_id",
         ]
+
+
+class OngoingCallHistorySerializer(serializers.ModelSerializer):
+    user_id = serializers.CharField(source="user.user.user_id", read_only=True)
+    executive_id = serializers.CharField(source="executive.user.executive_id", read_only=True)
+
+    class Meta:
+        model = AgoraCallHistory
+        fields = [
+            "id",
+            "channel_name",
+            "uid",
+            "callee_uid",
+            "executive_token",
+            "token",
+            "status",
+            "is_active",
+            "start_time",
+            "joined_at",
+            "end_time",
+            "duration_seconds",
+            "coins_deducted",
+            "executive_earnings",
+            "coins_per_second",
+            "amount_per_min",
+            "user_id",
+            "executive_id",
+            "ended_by",
+            "end_request_id",
+        ]

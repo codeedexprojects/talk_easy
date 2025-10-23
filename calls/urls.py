@@ -31,6 +31,9 @@ urlpatterns = [
     path('analytics/', CallAnalyticsView.as_view(), name='call-analytics'),
     path("leave_joined/", LeaveJoinedCallsView.as_view(), name="leave-joined-calls"),
     path('ongoing/', OngoingCallsView.as_view(), name='ongoing-calls'),
+    path('ongoing/', OngoingCallsView.as_view(), name='ongoing-calls'),
+    path('monitor/<int:call_id>/', GenerateMonitorTokenView.as_view(), name='generate-monitor-token'),
+    path('stop-monitor//<int:call_id>/', StopMonitoringView.as_view(), name='stop-monitoring'),
 
 ]
 
