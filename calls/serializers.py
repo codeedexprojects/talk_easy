@@ -103,6 +103,8 @@ class AgoraCallHistorySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "channel_name",
+            "executive_token",
+            "token",
             "status",
             "is_active",
             "start_time",
