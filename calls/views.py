@@ -791,12 +791,123 @@ class LeaveJoinedCallsView(APIView):
         except Exception as e:
             print(f"WebSocket notification failed: {e}")
 
+from agora_token_builder import RtcTokenBuilder
+import random
+import time
+
+class GenerateMonitorTokenView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def post(self, request, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(
+                id=call_id, 
+                status="joined", 
+                is_active=True
+            )
+            
+            # Agora credentials
+            app_id = settings.AGORA_APP_ID
+            app_certificate = settings.AGORA_APP_CERTIFICATE
+            
+            # Generate unique UID for monitor
+            monitor_uid = random.randint(100000, 999999)
+            
+            # Token expires in 24 hours
+            expiration_time = int(time.time()) + 86400
+            
+            # Generate token with SUBSCRIBER privilege only
+            monitor_token = RtcTokenBuilder.buildTokenWithUid(
+                app_id,
+                app_certificate,
+                call.channel_name,
+                monitor_uid,
+                RtcTokenBuilder.Role_Subscriber,  # Only subscribe, cannot publish
+                expiration_time
+            )
+            
+            # Update call record
+            call.monitor_uid = monitor_uid
+            call.monitor_token = monitor_token
+            call.is_monitored = True
+            call.save()
+            
+            return Response({
+                'success': True,
+                'channel_name': call.channel_name,
+                'monitor_token': monitor_token,
+                'monitor_uid': monitor_uid,
+                'app_id': app_id,
+                'user_uid': call.uid,
+                'executive_uid': call.callee_uid,
+                'participants': {
+                    'user': {
+                        'uid': call.uid,
+                        'name': call.user.user.get_full_name() or call.user.user.username,
+                        'username': call.user.user.username
+                    },
+                    'executive': {
+                        'uid': call.callee_uid,
+                        'name': call.executive.name
+                    }
+                },
+                'call_info': {
+                    'start_time': call.start_time,
+                    'joined_at': call.joined_at,
+                    'duration_seconds': call.duration_seconds
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except AgoraCallHistory.DoesNotExist:
+            return Response({
+                'success': False, 
+                'error': 'Call not found or not active'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class StopMonitoringView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def post(self, request, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(id=call_id)
+            call.is_monitored = False
+            call.monitor_uid = None
+            call.monitor_token = None
+            call.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Monitoring stopped'
+            }, status=status.HTTP_200_OK)
+            
+        except AgoraCallHistory.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Call not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
 
 class OngoingCallsView(APIView):
     permission_classes = [IsAdminUser]
-    authentication_classes=[JWTAuthentication]
+    authentication_classes = [JWTAuthentication]
 
     def get(self, request):
-        ongoing_calls = AgoraCallHistory.objects.filter(status="joined", is_active=True)
-        serializer = AgoraCallHistorySerializer(ongoing_calls, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        ongoing_calls = AgoraCallHistory.objects.filter(
+            status="joined", 
+            is_active=True
+        ).select_related('user', 'executive').order_by('-joined_at')
+        
+        serializer = OngoingCallHistorySerializer(ongoing_calls, many=True)
+        return Response({
+            'success': True,
+            'count': ongoing_calls.count(),
+            'calls': serializer.data
+        }, status=status.HTTP_200_OK)

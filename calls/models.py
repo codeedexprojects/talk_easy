@@ -52,6 +52,10 @@ class AgoraCallHistory(models.Model):
     ended_by = models.CharField(max_length=50, null=True, blank=True)  
     end_request_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
 
+    monitor_uid = models.IntegerField(null=True, blank=True)  
+    monitor_token = models.CharField(max_length=512, null=True, blank=True)  
+    is_monitored = models.BooleanField(default=False)  
+
     class Meta:
         indexes = [
             models.Index(fields=["is_active", "channel_name"]),
