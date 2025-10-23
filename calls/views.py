@@ -807,27 +807,24 @@ class GenerateMonitorTokenView(APIView):
                 is_active=True
             )
             
-            # Agora credentials
             app_id = settings.AGORA_APP_ID
             app_certificate = settings.AGORA_APP_CERTIFICATE
             
-            # Generate unique UID for monitor
             monitor_uid = random.randint(100000, 999999)
+            expiration_time = int(time.time()) + 86400  # 24 hours
             
-            # Token expires in 24 hours
-            expiration_time = int(time.time()) + 86400
+            ROLE_SUBSCRIBER = 2  # 1 = Publisher, 2 = Subscriber
             
-            # Generate token with SUBSCRIBER privilege only
             monitor_token = RtcTokenBuilder.buildTokenWithUid(
                 app_id,
                 app_certificate,
                 call.channel_name,
                 monitor_uid,
-                RtcTokenBuilder.Role_Subscriber,  # Only subscribe, cannot publish
+                ROLE_SUBSCRIBER,
                 expiration_time
             )
             
-            # Update call record
+            # Update only necessary fields
             call.monitor_uid = monitor_uid
             call.monitor_token = monitor_token
             call.is_monitored = True
@@ -844,12 +841,11 @@ class GenerateMonitorTokenView(APIView):
                 'participants': {
                     'user': {
                         'uid': call.uid,
-                        'name': call.user.user.get_full_name() or call.user.user.username,
-                        'username': call.user.user.username
+                        'name': call.user.user_id
                     },
                     'executive': {
                         'uid': call.callee_uid,
-                        'name': call.executive.name
+                        'name': call.executive.executive_id
                     }
                 },
                 'call_info': {
@@ -865,10 +861,13 @@ class GenerateMonitorTokenView(APIView):
                 'error': 'Call not found or not active'
             }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
+            import traceback
             return Response({
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'traceback': traceback.format_exc()
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class StopMonitoringView(APIView):
