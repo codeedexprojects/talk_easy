@@ -127,11 +127,12 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# TIME_ZONE = 'UTC'
 
 USE_I18N = True
 
 USE_TZ = True
+
 
 
 # Static files (CSS, JavaScript, Images)
@@ -228,7 +229,8 @@ REST_FRAMEWORK = {
 
     ),
     'EXCEPTION_HANDLER': 'executives.authentication.custom_exception_handler',
-
+    'DATETIME_FORMAT': "%d-%b-%Y %I:%M %p", 
+    'TIME_ZONE': 'Asia/Kolkata',
     
 }
 
