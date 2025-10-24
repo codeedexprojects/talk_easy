@@ -966,30 +966,45 @@ class UserSpecificRatingsView(APIView):
     
 
 class UserSearchView(APIView):
-    permission_classes = []  
-    authentication_classes = []
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
 
     def get(self, request):
         query = request.query_params.get("q", "").strip()
+        status_filter = request.query_params.get("status", "").strip().lower()
 
-        if not query:
+        users = UserProfile.objects.all()
+
+        if query:
+            users = users.filter(
+                Q(name__icontains=query)
+                | Q(email__icontains=query)
+                | Q(mobile_number__icontains=query)
+                | Q(user_id__icontains=query)
+            )
+
+        if status_filter == "banned":
+            users = users.filter(is_banned=True)
+        elif status_filter == "suspended":
+            users = users.filter(is_suspended=True)
+        elif status_filter == "active":
+            users = users.filter(is_active=True, is_banned=False, is_suspended=False, is_deleted=False)
+        elif status_filter == "deleted":
+            users = users.filter(is_deleted=True)
+        elif status_filter:
             return Response(
-                {"error": "Search query parameter 'q' is required."},
+                {"error": "Invalid status filter. Use 'banned', 'suspended', 'active', or 'deleted'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        users = UserProfile.objects.filter(
-            Q(name__icontains=query)
-            | Q(email__icontains=query)
-            | Q(mobile_number__icontains=query)
-            | Q(user_id__icontains=query)
-        ).order_by("-created_at")
+        users = users.order_by("-created_at")
 
         if not users.exists():
             return Response({"message": "No users found."}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = UserProfileSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
     
 class UserAnalyticsView(APIView):
     permission_classes = [IsAdminUser]  
