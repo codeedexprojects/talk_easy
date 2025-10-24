@@ -10,7 +10,7 @@ from django.utils.timezone import now
 from rest_framework.permissions import IsAdminUser
 import razorpay
 from django.conf import settings
-
+from accounts.pagination import *
 
 #  Category Create & List
 class RechargePlanCategoryListCreateAPIView(generics.ListCreateAPIView):
@@ -492,3 +492,31 @@ class RechargeAnalyticsView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=500)
+        
+class UserRechargeListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        user_id = request.query_params.get("user_id")
+        status_filter = request.query_params.get("status")
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        recharges = UserRecharge.objects.select_related("user", "plan").order_by("-created_at")
+
+        if user_id:
+            recharges = recharges.filter(user__id=user_id)
+        if status_filter:
+            recharges = recharges.filter(payment_status=status_filter)
+        if start_date and end_date:
+            recharges = recharges.filter(created_at__range=[start_date, end_date])
+
+        if not recharges.exists():
+            return Response({"message": "No recharge records found."}, status=status.HTTP_404_NOT_FOUND)
+
+        paginator = CustomUserPagination()
+        paginated_qs = paginator.paginate_queryset(recharges, request)
+        serializer = UserRechargeSerializer(paginated_qs, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
