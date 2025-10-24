@@ -1030,3 +1030,29 @@ class UserAnalyticsView(APIView):
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+class RatingListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        executive_id = request.query_params.get('executive_id')
+        user_id = request.query_params.get('user_id')
+
+        ratings = Rating.objects.all().select_related('user', 'executive')
+
+        if executive_id:
+            ratings = ratings.filter(executive_id=executive_id)
+        if user_id:
+            ratings = ratings.filter(user_id=user_id)
+
+        if not ratings.exists():
+            return Response(
+                {"message": "No ratings found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        paginator = CustomUserPagination()
+        paginated_ratings = paginator.paginate_queryset(ratings, request)
+        serializer = RatingSerializer(paginated_ratings, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
