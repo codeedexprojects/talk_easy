@@ -158,6 +158,7 @@ class ExecutiveVerifyOTPView(APIView):
     def post(self, request):
         mobile_number = request.data.get("mobile_number")
         otp = request.data.get("otp")
+        fcm_token = request.data.get("fcm_token")  
 
         try:
             executive = Executive.objects.get(mobile_number=mobile_number)
@@ -186,12 +187,16 @@ class ExecutiveVerifyOTPView(APIView):
         executive.online = True
         executive.is_logged_out = False
         executive.is_verified = True
-        executive.save(update_fields=["otp", "is_verified", "online", "is_logged_out"])
+        if fcm_token:
+            executive.fcm_token = fcm_token
+
+        executive.save(update_fields=["otp", "is_verified", "online", "is_logged_out", "fcm_token"])
 
         return Response({
             "message": "OTP verified successfully",
             "executive_id": executive.executive_id,
             "id": executive.id,
+            "fcm_token":executive.fcm_token,
             "name": executive.name,
             "access_token": new_token.access_token,
             "refresh_token": new_token.refresh_token,

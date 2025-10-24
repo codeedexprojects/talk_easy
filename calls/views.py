@@ -16,13 +16,19 @@ from .pagination import CustomCallPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAdminUser
 from calls.utils import generate_agora_token
-import threading
 import time
 from executives.models import Executive
+from users.models import UserStats
+from calls.utils import send_fcm_notification
+
+import threading
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from .models import AgoraCallHistory
+from calls.serializers import CallInitiateSerializer
+from calls.utils import generate_agora_token
+from executives.models import Executive, ExecutiveStats
 from users.models import UserStats
-
 class IsAuthenticatedOrService(permissions.BasePermission):
  
     def has_permission(self, request, view):
@@ -31,23 +37,6 @@ class IsAuthenticatedOrService(permissions.BasePermission):
         # allow for webhook endpoint; actual verification will be inside the view
         return view.__class__.__name__ == "AgoraWebhookView"
 
-
-
-
-import threading
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
-from django.utils import timezone
-from django.shortcuts import get_object_or_404
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from .models import AgoraCallHistory
-from calls.serializers import CallInitiateSerializer
-from calls.utils import generate_agora_token
-from executives.models import Executive, ExecutiveStats
-from users.models import UserStats
 
 
 class CallInitiateView(APIView):
@@ -70,16 +59,10 @@ class CallInitiateView(APIView):
             try:
                 user_stats = user.stats
             except UserStats.DoesNotExist:
-                return Response(
-                    {"message": "User stats not found"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({"message": "User stats not found"}, status=status.HTTP_400_BAD_REQUEST)
 
             if user_stats.coin_balance < 180:
-                return Response(
-                    {"message": "At least 180 coins required to start a call"},
-                    status=status.HTTP_402_PAYMENT_REQUIRED
-                )
+                return Response({"message": "At least 180 coins required to start a call"}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
             # Mark executive as on call
             executive.on_call = True
@@ -87,7 +70,7 @@ class CallInitiateView(APIView):
 
             # Generate caller token
             caller_token = generate_agora_token(channel_name, caller_uid)
-            
+
             # Calculate callee_uid (executive's UID)
             callee_uid = caller_uid + 1000
             # Generate executive token with the predetermined UID
@@ -98,6 +81,7 @@ class CallInitiateView(APIView):
             rate_per_minute = exec_stats.amount_per_min
             coins_per_second = exec_stats.coins_per_second
             executive_code = executive.executive_id
+
             # Create call history
             call_history = AgoraCallHistory.objects.create(
                 executive=executive,
@@ -106,7 +90,7 @@ class CallInitiateView(APIView):
                 callee_uid=callee_uid,
                 token=caller_token,
                 executive_token=executive_token,
-                status="ringing",  # Changed from "pending" to "ringing"
+                status="ringing",  # call is ringing
                 is_active=False,   # Not active until executive joins
                 user=user,
                 coins_per_second=coins_per_second,
@@ -116,13 +100,30 @@ class CallInitiateView(APIView):
             # Send WebSocket notification
             self.send_incoming_call_notification(executive_id, call_history, user)
 
+            # Send FCM notification
+            if executive.fcm_token:
+                fcm_title = "Incoming Call"
+                fcm_body = f"New call from {getattr(user, 'name', 'Unknown')}"
+                fcm_data = {
+                    "call_id": str(call_history.id),
+                    "channel_name": call_history.channel_name,
+                    "caller_name": getattr(user, "name", "Unknown"),
+                    "caller_uid": str(call_history.uid),
+                    "executive_token": call_history.executive_token,
+                    "callee_uid": str(call_history.callee_uid),
+                    "coins_per_second": str(call_history.coins_per_second),
+                    "amount_per_min": str(call_history.amount_per_min),
+                    "status": call_history.status,
+                }
+                send_fcm_notification(executive.fcm_token, fcm_title, fcm_body, fcm_data)
+
             # Schedule missed call check (non-Celery)
             threading.Timer(30, self.mark_call_as_missed, args=[call_history.id]).start()
 
             return Response({
                 "id": call_history.id,
                 "executive_id": executive_id,
-                "executive_code":executive_code,
+                "executive_code": executive_code,
                 "channel_name": channel_name,
                 "caller_uid": caller_uid,
                 "token": caller_token,
@@ -171,7 +172,7 @@ class CallInitiateView(APIView):
     @staticmethod
     def mark_call_as_missed(call_id):
         try:
-            call = AgoraCallHistory.objects.get(id=call_id, status="ringing")  # Changed from "pending"
+            call = AgoraCallHistory.objects.get(id=call_id, status="ringing")
             call.status = "missed"
             call.is_active = False
             call.end_time = timezone.now()

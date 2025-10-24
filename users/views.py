@@ -966,8 +966,8 @@ class UserSpecificRatingsView(APIView):
     
 
 class UserSearchView(APIView):
-    permission_classes = [IsAdminUser]
-    authentication_classes = [JWTAuthentication]
+    permission_classes = []
+    authentication_classes = []
 
     def get(self, request):
         query = request.query_params.get("q", "").strip()
