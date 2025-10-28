@@ -105,3 +105,69 @@ class AdminPermissionUpdateSerializer(serializers.ModelSerializer):
         model = Admin
         fields = ['id', 'name', 'email', 'role', 'custom_permissions']
         read_only_fields = ['email', 'name', 'role']
+
+
+class AdminPasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        email = attrs.get('email')
+        otp = attrs.get('otp')
+        new_password = attrs.get('new_password')
+        confirm_password = attrs.get('confirm_password')
+
+        if new_password != confirm_password:
+            raise serializers.ValidationError("Passwords do not match.")
+
+        try:
+            admin = Admin.objects.get(email=email)
+        except Admin.DoesNotExist:
+            raise serializers.ValidationError("Admin with this email does not exist.")
+
+        # OTP verification
+        if not admin.otp or admin.otp != otp:
+            raise serializers.ValidationError("Invalid OTP.")
+
+        # Optional: Expiry check (valid for 5 minutes)
+        if admin.otp_created_at:
+            time_diff = timezone.now() - admin.otp_created_at
+            if time_diff.total_seconds() > 300:
+                raise serializers.ValidationError("OTP has expired. Please request a new one.")
+
+        attrs['admin'] = admin
+        return attrs
+
+    def save(self):
+        admin = self.validated_data['admin']
+        new_password = self.validated_data['new_password']
+
+        admin.set_password(new_password)
+        admin.otp = None
+        admin.otp_verified_at = timezone.now()
+        admin.save()
+
+        return admin
+    
+
+class AdminUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Admin
+        fields = [
+            'name',
+            'mobile_number',
+            'role',
+            'custom_permissions',
+            'is_banned',
+            'is_active',
+        ]
+        read_only_fields = ['email', 'created_at']
+
+    def validate_role(self, value):
+        # Only superusers can change role
+        request = self.context.get('request')
+        if request and not request.user.role == 'superuser' and 'role' in self.initial_data:
+            raise serializers.ValidationError("Only superusers can change role.")
+        return value
