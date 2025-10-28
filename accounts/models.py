@@ -32,6 +32,11 @@ class Admin(AbstractBaseUser, PermissionsMixin):
 
     groups = models.ManyToManyField(Group, related_name='admin_groups', blank=True)
     user_permissions = models.ManyToManyField(Permission, related_name='admin_permissions', blank=True)
+    custom_permissions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Stores specific functions or access privileges this admin can use"
+    )
 
     objects = AdminManager()
 

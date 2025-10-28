@@ -31,7 +31,8 @@ from accounts.serializers import SuperuserLoginSerializer, AdminSessionSerialize
 from .models import AdminSession
 from .utils import parse_user_agent, get_client_ip
 import uuid
-
+from django.shortcuts import get_object_or_404
+from executives.permissions import IsAdminUser
 
 class SuperuserLoginView(APIView):
     serializer_class = SuperuserLoginSerializer
@@ -311,3 +312,80 @@ class RevokeAllOtherSessionsView(APIView):
             'message': f'{count} session(s) revoked successfully',
             'sessions_revoked': count
         }, status=status.HTTP_200_OK)
+    
+
+class ManagerExecutiveCreateView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes = [JWTAuthentication]
+
+    def post(self, request):
+        if not request.user.is_superuser:
+            return Response(
+                {"error": "You do not have permission to create this role."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = ManagerExecutiveCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {"message": "Manager Executive created successfully", "data": serializer.data},
+                status=status.HTTP_201_CREATED
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class ManagerExecutiveLoginView(APIView):
+    def post(self, request):
+        serializer = ManagerExecutiveLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            return Response(
+                {
+                    "message": "Login successful",
+                    "data": serializer.validated_data
+                },
+                status=status.HTTP_200_OK
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+class UpdateAdminPermissionsView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+
+    def patch(self, request, pk):
+        if not request.user.is_superuser:
+            return Response({"error": "Only superusers can manage permissions."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            admin = Admin.objects.get(pk=pk)
+        except Admin.DoesNotExist:
+            return Response({"error": "Admin not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AdminPermissionUpdateSerializer(admin, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "message": "Permissions updated successfully",
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class ManagerExecutiveDeleteView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+
+    def delete(self, request, pk):
+        if not (request.user.is_superuser or getattr(request.user, "role", "") == "admin"):
+            return Response(
+                {"error": "You do not have permission to delete a manager executive."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        manager_exec = get_object_or_404(Admin, id=pk, role="manager_executive")
+        manager_exec.delete()
+
+        return Response(
+            {"message": "Manager executive deleted successfully."},
+            status=status.HTTP_204_NO_CONTENT
+        )

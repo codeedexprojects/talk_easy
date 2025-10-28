@@ -11,6 +11,8 @@ from rest_framework.permissions import IsAdminUser
 import razorpay
 from django.conf import settings
 from accounts.pagination import *
+from executives.permissions import IsAdminUser
+
 
 #  Category Create & List
 class RechargePlanCategoryListCreateAPIView(generics.ListCreateAPIView):

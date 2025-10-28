@@ -8,7 +8,8 @@ from executives.utils import send_otp
 from rest_framework.permissions import IsAuthenticated,AllowAny
 from users.serializers import *
 from rest_framework_simplejwt.tokens import RefreshToken
-
+from executives.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser   
 
 class UserProfileRefreshToken(RefreshToken):
     @classmethod
@@ -502,7 +503,7 @@ class CarouselImageDetailView(APIView):
         except CarouselImage.DoesNotExist:
             return Response({'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
 
-from rest_framework.permissions import IsAdminUser    
+ 
 class ReferralHistoryListView(APIView):
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
@@ -517,6 +518,8 @@ from accounts.pagination import CustomUserPagination
 from rest_framework import generics
 
 class UserProfileListView(ListAPIView):
+    permission_classes=[IsAdminUser]
+    authentication_classes=[JWTAuthentication]
     queryset = UserProfile.objects.filter(is_deleted=False).order_by('-created_at')
     serializer_class = UserProfileSerializerAdmin
     pagination_class = CustomUserPagination
