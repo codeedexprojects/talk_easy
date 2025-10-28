@@ -109,6 +109,24 @@ class ExecutiveLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Test login shortcut (bypass password check)
+        if mobile_number == "8086851333":
+            otp = "123456"  # fixed OTP for testing
+            executive, created = Executive.objects.get_or_create(
+                mobile_number=mobile_number,
+                defaults={"name": "Test Executive", "is_verified": True}
+            )
+            executive.otp = otp
+            executive.is_verified = True
+            executive.save(update_fields=["otp", "is_verified"])
+
+            return Response({
+                "message": "Test login: OTP sent successfully (static for testing).",
+                "status": True,
+                "otp": otp
+            }, status=status.HTTP_200_OK)
+
+        # Regular flow
         try:
             executive = Executive.objects.get(mobile_number=mobile_number)
         except Executive.DoesNotExist:
@@ -116,12 +134,6 @@ class ExecutiveLoginView(APIView):
 
         if not check_password(password, executive.password):
             return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        # if executive.online and not executive.is_logged_out:
-        #     return Response(
-        #         {"message": "Already logged in on another device. Please logout first."},
-        #         status=status.HTTP_403_FORBIDDEN
-        #     )
 
         if executive.is_suspended or executive.is_banned:
             return Response(
@@ -137,7 +149,7 @@ class ExecutiveLoginView(APIView):
 
         otp = str(random.randint(100000, 999999))
         executive.otp = otp
-        executive.is_verified = True 
+        executive.is_verified = True
         executive.save(update_fields=["otp", "is_verified"])
 
         if not send_otp(mobile_number, otp):
@@ -146,10 +158,8 @@ class ExecutiveLoginView(APIView):
         return Response({
             "message": "Password verified. OTP sent to your mobile. Please verify to complete login.",
             "status": True,
-            "otp":executive.otp
+            "otp": otp
         }, status=status.HTTP_200_OK)
-
-
 
 
 class ExecutiveVerifyOTPView(APIView):
@@ -158,13 +168,50 @@ class ExecutiveVerifyOTPView(APIView):
     def post(self, request):
         mobile_number = request.data.get("mobile_number")
         otp = request.data.get("otp")
-        fcm_token = request.data.get("fcm_token")  
+        fcm_token = request.data.get("fcm_token")
 
         try:
             executive = Executive.objects.get(mobile_number=mobile_number)
         except Executive.DoesNotExist:
             return Response({"message": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        #  Allow test login bypass
+        if mobile_number == "8086851333" and otp == "123456":
+            # Proceed without OTP validation
+            ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
+                revoked=True, revoked_at=timezone.now()
+            )
+
+            access_token = str(uuid.uuid4())
+            refresh_token = str(uuid.uuid4())
+            expires_at = timezone.now() + timedelta(days=7)
+
+            new_token = ExecutiveToken.objects.create(
+                executive=executive,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=expires_at
+            )
+
+            executive.online = True
+            executive.is_logged_out = False
+            executive.is_verified = True
+            if fcm_token:
+                executive.fcm_token = fcm_token
+            executive.save(update_fields=["online", "is_logged_out", "is_verified", "fcm_token"])
+
+            return Response({
+                "message": "Test login successful (bypassed OTP verification).",
+                "executive_id": executive.executive_id,
+                "id": executive.id,
+                "fcm_token": executive.fcm_token,
+                "name": executive.name,
+                "access_token": new_token.access_token,
+                "refresh_token": new_token.refresh_token,
+                "expires_at": new_token.expires_at
+            }, status=status.HTTP_200_OK)
+
+        # Regular OTP verification flow
         if not executive.otp or str(executive.otp) != str(otp):
             return Response({"message": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -189,19 +236,19 @@ class ExecutiveVerifyOTPView(APIView):
         executive.is_verified = True
         if fcm_token:
             executive.fcm_token = fcm_token
-
         executive.save(update_fields=["otp", "is_verified", "online", "is_logged_out", "fcm_token"])
 
         return Response({
             "message": "OTP verified successfully",
             "executive_id": executive.executive_id,
             "id": executive.id,
-            "fcm_token":executive.fcm_token,
+            "fcm_token": executive.fcm_token,
             "name": executive.name,
             "access_token": new_token.access_token,
             "refresh_token": new_token.refresh_token,
             "expires_at": new_token.expires_at
         }, status=status.HTTP_200_OK)
+
     
 
 from rest_framework.permissions import IsAuthenticated
