@@ -110,7 +110,7 @@ class ExecutiveLoginView(APIView):
             )
 
         # Test login shortcut (bypass password check)
-        if mobile_number == "8086851333":
+        if mobile_number == "+918086851333":
             otp = "123456"  # fixed OTP for testing
             executive, created = Executive.objects.get_or_create(
                 mobile_number=mobile_number,
@@ -176,7 +176,7 @@ class ExecutiveVerifyOTPView(APIView):
             return Response({"message": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
 
         #  Allow test login bypass
-        if mobile_number == "8086851333" and otp == "123456":
+        if mobile_number == "+918086851333" and otp == "123456":
             # Proceed without OTP validation
             ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
                 revoked=True, revoked_at=timezone.now()
