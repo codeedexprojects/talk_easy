@@ -15,5 +15,7 @@ urlpatterns = [
     path('login-manager/', ManagerExecutiveLoginView.as_view(), name='login-manager-executive'),
     path('admin/<int:pk>/permissions/', UpdateAdminPermissionsView.as_view(), name='update-admin-permissions'),
     path('manager-executives/<int:pk>/delete/', ManagerExecutiveDeleteView.as_view(), name='delete-manager-executive'),
-
+    path('admin/reset-password/', AdminPasswordResetView.as_view(), name='admin-reset-password'),
+    path('admin-update/', AdminUpdateView.as_view(), name='admin-self-update'),           
+    path('admin/update/<int:pk>/', AdminUpdateView.as_view(), name='admin-update-by-id'),  
 ]

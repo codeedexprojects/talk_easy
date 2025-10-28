@@ -33,7 +33,8 @@ from .utils import parse_user_agent, get_client_ip
 import uuid
 from django.shortcuts import get_object_or_404
 from executives.permissions import IsAdminUser
-
+import random
+from executives.utils import send_otp
 class SuperuserLoginView(APIView):
     serializer_class = SuperuserLoginSerializer
     permission_classes = [AllowAny]
@@ -80,6 +81,7 @@ class SuperuserLoginView(APIView):
             "refresh_token": str(refresh),
             "user_id": admin.id,
             "email": admin.email,
+            "mobile":admin.mobile_number,
             "role": admin.role,
             "is_superuser": admin.is_superuser,
             "is_staff": admin.is_staff,
@@ -389,3 +391,67 @@ class ManagerExecutiveDeleteView(APIView):
             {"message": "Manager executive deleted successfully."},
             status=status.HTTP_204_NO_CONTENT
         )
+    
+class AdminPasswordResetView(APIView):
+
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+
+        # Step 1: Send OTP
+        if email and not otp:
+            try:
+                admin = Admin.objects.get(email=email)
+            except Admin.DoesNotExist:
+                return Response({"error": "Admin not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            # Generate OTP
+            otp_value = str(random.randint(100000, 999999))
+            admin.otp = otp_value
+            admin.otp_created_at = timezone.now()
+            admin.save()
+
+            # Send OTP to mobile
+            if admin.mobile_number and send_otp(admin.mobile_number, otp_value):
+                return Response(
+                    {"message": f"OTP sent successfully to {admin.mobile_number[-4:]}"},
+                    status=status.HTTP_200_OK
+                )
+            return Response(
+                {"error": "Failed to send OTP. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        serializer = AdminPasswordResetSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {"message": "Password has been reset successfully."},
+                status=status.HTTP_200_OK
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class AdminUpdateView(APIView):
+
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+
+    def patch(self, request, pk=None):
+        try:
+            if request.user.role == 'superuser' and pk:
+                admin = Admin.objects.get(pk=pk)
+            else:
+                admin = request.user
+        except Admin.DoesNotExist:
+            return Response({"error": "Admin not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AdminUpdateSerializer(admin, data=request.data, partial=True, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {"message": "Admin profile updated successfully.", "data": serializer.data},
+                status=status.HTTP_200_OK
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
