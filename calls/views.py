@@ -103,17 +103,10 @@ class CallInitiateView(APIView):
             # Send FCM notification
             if executive.fcm_token:
                 fcm_title = "Incoming Call"
-                fcm_body = f"New call from {getattr(user, 'name', 'Unknown')}"
+                fcm_body = f"New call from {getattr(user, 'user_id', 'Unknown')}"
                 fcm_data = {
-                    "call_id": str(call_history.id),
-                    "channel_name": call_history.channel_name,
-                    "caller_name": getattr(user, "name", "Unknown"),
-                    "caller_uid": str(call_history.uid),
-                    "executive_token": call_history.executive_token,
-                    "callee_uid": str(call_history.callee_uid),
-                    "coins_per_second": str(call_history.coins_per_second),
-                    "amount_per_min": str(call_history.amount_per_min),
-                    "status": call_history.status,
+                    "call_id": call_history.id,
+                    "caller_name": getattr(user, "user_id", "Unknown"),
                 }
                 send_fcm_notification(executive.fcm_token, fcm_title, fcm_body, fcm_data)
 
