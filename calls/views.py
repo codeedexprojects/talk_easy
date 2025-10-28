@@ -20,7 +20,7 @@ import time
 from executives.models import Executive
 from users.models import UserStats
 from calls.utils import send_fcm_notification
-
+from executives.permissions import IsAdminUser
 import threading
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
