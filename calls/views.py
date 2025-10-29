@@ -114,14 +114,15 @@ class CallInitiateView(APIView):
                     "avatar":"",
                     "channel_name":str(call_history.channel_name),
                     "token":str(call_history.executive_token),
-                    "agorauserid":call_history.callee_uid
+                    "agorauserid":str(call_history.callee_uid)
                 }
-                fcm_sent, fcm_error = send_fcm_notification(
+                fcm_sent = send_fcm_notification(
                     executive.fcm_token, 
                     fcm_title, 
                     fcm_body, 
                     fcm_data
                 )
+                fcm_error = None
             else:
                 fcm_error = "No FCM token available"
 
