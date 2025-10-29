@@ -34,25 +34,40 @@ cred = credentials.Certificate("talkeasy/talkeasy-8420b-firebase-adminsdk-fbsvc-
 firebase_admin.initialize_app(cred)
 
 def send_fcm_notification(token, title, body, data=None):
-    print("📩 FCM Notification Triggered")
-    print(f"Token: {token}")
-    print(f"Title: {title}")
-    print(f"Body: {body}")
-    print(f"Data: {data}")
-
     if not token:
         print("No FCM token provided, skipping notification.")
-        return
-
+        return False
+    
+    # Ensure token is clean string
+    token = str(token).strip()
+    
+    # Convert all data to strings (CRITICAL!)
+    safe_data = {}
+    if data:
+        for key, value in data.items():
+            safe_data[str(key)] = str(value)
+    
     message = messaging.Message(
-        notification=messaging.Notification(title=title, body=body),
-        data=data or {},
+        notification=messaging.Notification(
+            title=str(title),
+            body=str(body)
+        ),
+        data=safe_data,
         token=token,
     )
-
+    
     try:
         response = messaging.send(message)
-        print(f"✅ FCM Notification sent successfully: {response}")
+        print(f"✓ FCM sent successfully: {response}")
+        return True
+    except messaging.UnregisteredError:
+        print(f"✗ FCM token unregistered/invalid")
+        return False
+    except messaging.InvalidArgumentError as e:
+        print(f"✗ Invalid FCM argument: {e}")
+        return False
     except Exception as e:
-        print(f"❌ Error sending FCM notification: {e}")
-
+        print(f"✗ FCM error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
