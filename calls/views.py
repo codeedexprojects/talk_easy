@@ -313,7 +313,7 @@ class RejectCallViewUser(APIView):
 
     def post(self, request, call_id):
         try:
-            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+            call = AgoraCallHistory.objects.get(id=call_id)
         except AgoraCallHistory.DoesNotExist:
             return Response({"error": "Call not found or already inactive"}, status=404)
 
