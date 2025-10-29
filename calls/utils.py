@@ -34,6 +34,12 @@ cred = credentials.Certificate("talkeasy/talkeasy-8420b-firebase-adminsdk-fbsvc-
 firebase_admin.initialize_app(cred)
 
 def send_fcm_notification(token, title, body, data=None):
+    print("📩 FCM Notification Triggered")
+    print(f"Token: {token}")
+    print(f"Title: {title}")
+    print(f"Body: {body}")
+    print(f"Data: {data}")
+
     if not token:
         print("No FCM token provided, skipping notification.")
         return
@@ -46,6 +52,7 @@ def send_fcm_notification(token, title, body, data=None):
 
     try:
         response = messaging.send(message)
-        print(f"FCM Notification sent successfully: {response}")
+        print(f"✅ FCM Notification sent successfully: {response}")
     except Exception as e:
-        print(f"Error sending FCM notification: {e}")
+        print(f"❌ Error sending FCM notification: {e}")
+
