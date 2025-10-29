@@ -173,11 +173,12 @@ class ExecutiveVerifyOTPView(APIView):
         try:
             executive = Executive.objects.get(mobile_number=mobile_number)
         except Executive.DoesNotExist:
-            return Response({"message": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"message": "Executive not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        #  Allow test login bypass
         if mobile_number == "+918086851333" and otp == "123456":
-            # Proceed without OTP validation
             ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
                 revoked=True, revoked_at=timezone.now()
             )
@@ -196,9 +197,10 @@ class ExecutiveVerifyOTPView(APIView):
             executive.online = True
             executive.is_logged_out = False
             executive.is_verified = True
+
             if fcm_token:
-                executive.fcm_token = fcm_token
-            executive.save(update_fields=["online", "is_logged_out", "is_verified", "fcm_token"])
+                executive.fcm_token = fcm_token  
+            executive.save()  
 
             return Response({
                 "message": "Test login successful (bypassed OTP verification).",
@@ -211,9 +213,11 @@ class ExecutiveVerifyOTPView(APIView):
                 "expires_at": new_token.expires_at
             }, status=status.HTTP_200_OK)
 
-        # Regular OTP verification flow
         if not executive.otp or str(executive.otp) != str(otp):
-            return Response({"message": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Invalid OTP"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
             revoked=True, revoked_at=timezone.now()
@@ -234,9 +238,11 @@ class ExecutiveVerifyOTPView(APIView):
         executive.online = True
         executive.is_logged_out = False
         executive.is_verified = True
+
         if fcm_token:
-            executive.fcm_token = fcm_token
-        executive.save(update_fields=["otp", "is_verified", "online", "is_logged_out", "fcm_token"])
+            executive.fcm_token = fcm_token  
+
+        executive.save()  
 
         return Response({
             "message": "OTP verified successfully",

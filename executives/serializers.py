@@ -34,6 +34,7 @@ class ExecutiveLoginSerializer(serializers.Serializer):
 class ExecutiveLoginSerializer(serializers.Serializer):
     mobile_number = serializers.CharField()
     password = serializers.CharField()
+    
 
 class ExecutiveOTPVerifySerializer(serializers.Serializer):
     mobile_number = serializers.CharField()
