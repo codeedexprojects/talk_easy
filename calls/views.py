@@ -114,7 +114,7 @@ class CallInitiateView(APIView):
                     "avatar":"",
                     "channel_name":str(call_history.channel_name),
                     "token":str(call_history.executive_token),
-                    "agorauserid":str(call_history.callee_uid)
+                    "agorauserid":call_history.callee_uid
                 }
                 fcm_sent, fcm_error = send_fcm_notification(
                     executive.fcm_token, 
