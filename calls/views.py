@@ -102,18 +102,13 @@ class CallInitiateView(APIView):
 
             # Send FCM notification
             if executive.fcm_token:
-                print(f"✅ FCM token found: {executive.fcm_token}")
                 fcm_title = "incoming_call"
                 fcm_body = f"New call from {getattr(user, 'user_id', 'Unknown')}"
                 fcm_data = {
                     "call_id": call_history.id,
                     "caller_name": getattr(user, "user_id", "Unknown"),
                 }
-                print(f"📤 Sending FCM notification to {executive.fcm_token} with data: {fcm_data}")
                 send_fcm_notification(executive.fcm_token, fcm_title, fcm_body, fcm_data)
-                print("✅ FCM notification function executed")
-            else:
-                print("⚠️ No FCM token found for executive")
 
             # Schedule missed call check (non-Celery)
             threading.Timer(30, self.mark_call_as_missed, args=[call_history.id]).start()
