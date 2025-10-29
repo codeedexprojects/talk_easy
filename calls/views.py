@@ -108,7 +108,7 @@ class CallInitiateView(APIView):
                 fcm_title = "talkeazy"
                 fcm_body = f"New call from {getattr(user, 'user_id', 'Unknown')}"
                 fcm_data = {
-                    "call_id": str(call_history.id),  
+                    "call_id": call_history.id,
                     "caller_name": str(getattr(user, "user_id", "Unknown")),
                     "type":"incoming_call",
                     "avatar":"",
