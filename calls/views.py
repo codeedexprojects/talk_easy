@@ -90,8 +90,8 @@ class CallInitiateView(APIView):
                 callee_uid=callee_uid,
                 token=caller_token,
                 executive_token=executive_token,
-                status="ringing",  # call is ringing
-                is_active=False,   # Not active until executive joins
+                status="ringing",
+                is_active=False,
                 user=user,
                 coins_per_second=coins_per_second,
                 amount_per_min=rate_per_minute
@@ -100,15 +100,25 @@ class CallInitiateView(APIView):
             # Send WebSocket notification
             self.send_incoming_call_notification(executive_id, call_history, user)
 
-            # Send FCM notification
+            # Send FCM notification - UPDATED WITH STATUS TRACKING
+            fcm_sent = False
+            fcm_error = None
+            
             if executive.fcm_token:
                 fcm_title = "incoming_call"
                 fcm_body = f"New call from {getattr(user, 'user_id', 'Unknown')}"
                 fcm_data = {
-                    "call_id": call_history.id,
-                    "caller_name": getattr(user, "user_id", "Unknown"),
+                    "call_id": str(call_history.id),  # ✓ Convert to string
+                    "caller_name": str(getattr(user, "user_id", "Unknown")),  # ✓ Convert to string
                 }
-                send_fcm_notification(executive.fcm_token, fcm_title, fcm_body, fcm_data)
+                fcm_sent, fcm_error = send_fcm_notification(
+                    executive.fcm_token, 
+                    fcm_title, 
+                    fcm_body, 
+                    fcm_data
+                )
+            else:
+                fcm_error = "No FCM token available"
 
             # Schedule missed call check (non-Celery)
             threading.Timer(30, self.mark_call_as_missed, args=[call_history.id]).start()
@@ -124,7 +134,9 @@ class CallInitiateView(APIView):
                 "executive_token": executive_token,
                 "status": "ringing",
                 "coins_per_second": coins_per_second,
-                "amount_per_min": str(rate_per_minute)
+                "amount_per_min": str(rate_per_minute),
+                "fcm_sent": fcm_sent,  # ✓ Added
+                "fcm_error": fcm_error  # ✓ Added (will be None if successful)
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
