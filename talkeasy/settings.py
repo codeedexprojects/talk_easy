@@ -229,8 +229,8 @@ REST_FRAMEWORK = {
 
     ),
     'EXCEPTION_HANDLER': 'executives.authentication.custom_exception_handler',
-    'DATETIME_FORMAT': "%d-%b-%Y %I:%M %p", 
-    'TIME_ZONE': 'Asia/Kolkata',
+    # 'DATETIME_FORMAT': "%d-%b-%Y %I:%M %p", 
+    # 'TIME_ZONE': 'Asia/Kolkata',
     
 }
 
