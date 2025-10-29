@@ -100,7 +100,6 @@ class CallInitiateView(APIView):
             # Send WebSocket notification
             self.send_incoming_call_notification(executive_id, call_history, user)
 
-            # Send FCM notification - UPDATED WITH STATUS TRACKING
             fcm_sent = False
             fcm_error = None
             
@@ -519,7 +518,7 @@ class UserEndCallView(APIView):
 
     def post(self, request, call_id):
         try:
-            call = AgoraCallHistory.objects.get(id=call_id, is_active=True)
+            call = AgoraCallHistory.objects.get(id=call_id)
         except AgoraCallHistory.DoesNotExist:
             return Response({"error": "Call not found or already ended"}, status=404)
 
