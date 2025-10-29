@@ -105,11 +105,16 @@ class CallInitiateView(APIView):
             fcm_error = None
             
             if executive.fcm_token:
-                fcm_title = "incoming_call"
+                fcm_title = "talkeazy"
                 fcm_body = f"New call from {getattr(user, 'user_id', 'Unknown')}"
                 fcm_data = {
-                    "call_id": str(call_history.id),  # ✓ Convert to string
-                    "caller_name": str(getattr(user, "user_id", "Unknown")),  # ✓ Convert to string
+                    "call_id": str(call_history.id),  
+                    "caller_name": str(getattr(user, "user_id", "Unknown")),
+                    "type":"incoming_call",
+                    "avatar":"",
+                    "channel_name":str(call_history.channel_name),
+                    "token":str(call_history.executive_token),
+                    "agorauserid":str(call_history.callee_uid)
                 }
                 fcm_sent, fcm_error = send_fcm_notification(
                     executive.fcm_token, 
