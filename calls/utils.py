@@ -34,15 +34,14 @@ cred = credentials.Certificate("talkeasy/talkeasy-8420b-firebase-adminsdk-fbsvc-
 firebase_admin.initialize_app(cred)
 
 def send_fcm_notification(token, title, body, data=None):
-    """
-    Returns: (success: bool, error_message: str or None)
-    """
     if not token:
-        error_msg = "No FCM token provided"
-        print(error_msg)
-        return False, error_msg
+        print("No FCM token provided, skipping notification.")
+        return False
     
-    # Force all data to strings (CRITICAL!)
+    # Ensure token is clean string
+    token = str(token).strip()
+    
+    # Convert all data to strings (CRITICAL!)
     safe_data = {}
     if data:
         for key, value in data.items():
@@ -50,28 +49,25 @@ def send_fcm_notification(token, title, body, data=None):
     
     message = messaging.Message(
         notification=messaging.Notification(
-            title=str(title), 
+            title=str(title),
             body=str(body)
         ),
         data=safe_data,
-        token=str(token).strip(),
+        token=token,
     )
     
     try:
         response = messaging.send(message)
-        print(f"✓ FCM Notification sent successfully: {response}")
-        return True, None
-    except messaging.UnregisteredError as e:
-        error_msg = f"FCM token unregistered: {str(e)}"
-        print(f"❌ {error_msg}")
-        return False, error_msg
+        print(f"✓ FCM sent successfully: {response}")
+        return True
+    except messaging.UnregisteredError:
+        print(f"✗ FCM token unregistered/invalid")
+        return False
     except messaging.InvalidArgumentError as e:
-        error_msg = f"Invalid FCM argument: {str(e)}"
-        print(f"❌ {error_msg}")
-        return False, error_msg
+        print(f"✗ Invalid FCM argument: {e}")
+        return False
     except Exception as e:
-        error_msg = f"{type(e).__name__}: {str(e)}"
-        print(f"❌ Error sending FCM notification: {error_msg}")
+        print(f"✗ FCM error: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
-        return False, error_msg
+        return False
