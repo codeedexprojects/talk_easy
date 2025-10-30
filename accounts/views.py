@@ -434,11 +434,22 @@ class AdminPasswordResetView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class AdminUpdateView(APIView):
-
     permission_classes = [IsAdminUser]
-    authentication_classes=[JWTAuthentication]
+    authentication_classes = [JWTAuthentication]
 
-    def patch(self, request, pk=None):
+    def get(self, request, pk=None):
+        try:
+            if request.user.role == 'superuser' and pk:
+                admin = Admin.objects.get(pk=pk)
+            else:
+                admin = request.user
+        except Admin.DoesNotExist:
+            return Response({"error": "Admin not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AdminUpdateSerializer(admin, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk=None):  
         try:
             if request.user.role == 'superuser' and pk:
                 admin = Admin.objects.get(pk=pk)
