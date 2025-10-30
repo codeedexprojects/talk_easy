@@ -136,13 +136,14 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
 
 class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
     is_favourite = serializers.SerializerMethodField()
+    profile_photo = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id','name',
-            'status','is_offline', 'is_online', 'on_call',
-            'is_favourite',  
+            'id', 'executive_id', 'name',
+            'status', 'is_offline', 'is_online', 'on_call',
+            'is_favourite', 'profile_photo',
         ]
 
     def get_is_favourite(self, obj):
@@ -150,6 +151,18 @@ class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return Favourite.objects.filter(user=request.user, executive=obj).exists()
         return False
+
+    def get_profile_photo(self, obj):
+        try:
+            profile = obj.executiveprofilepicture
+            request = self.context.get('request')
+            if profile.profile_photo:
+                if request is not None:
+                    return request.build_absolute_uri(profile.profile_photo.url)
+                return profile.profile_photo.url
+        except ExecutiveProfilePicture.DoesNotExist:
+            return None
+
 
 
 class Executivelistserializer(serializers.ModelSerializer):
