@@ -81,23 +81,33 @@ TEMPLATES = [
 ]
 
 # WSGI_APPLICATION = 'talkeasy.wsgi.application'
-ASGI_APPLICATION = 'talkeasy.asgi.application'
+# ASGI_APPLICATION = 'talkeasy.asgi.application'
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_rabbitmq.core.RabbitmqChannelLayer",
-        "CONFIG": {
-            "host": "amqp://myuser:mypassword@localhost:5672/",
-        },
-    },
-}
+# CHANNEL_LAYERS = {
+#    "default": {
+#        "BACKEND": "channels_rabbitmq.core.RabbitmqChannelLayer",
+#        "CONFIG": {
+#            "host": "amqp://myuser:mypassword@localhost:5672/",
+#        },
+#    },
+# }
 # CHANNEL_LAYERS = {
 #     'default': {
 #         'BACKEND': 'channels.layers.InMemoryChannelLayer',
 #     },
 # }
 
+# Changed rabbitmq to redis for django channels for production
+ASGI_APPLICATION = "talkeasy.asgi.application"
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+        },
+    },
+}
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
@@ -178,21 +188,27 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 #prod
 
+#DATABASES = {
+#    'default': {
+#        'ENGINE': 'django.db.backends.mysql',
+#        'NAME': 'talkeasytest',
+#        'USER': 'admin',
+#        'PASSWORD':'admin123',
+#        'HOST':'talkeasytest.cluster-crk0828so75f.ap-south-1.rds.amazonaws.com',
+#        'PORT':'3306',
+#       'OPTIONS': {
+#           'charset': 'utf8mb4',  
+#          'use_unicode': True,
+#        },
+#    }
+#}
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'talkeasytest',
-        'USER': 'admin',
-        'PASSWORD':'admin123',
-        'HOST':'talkeasytest.cluster-crk0828so75f.ap-south-1.rds.amazonaws.com',
-        'PORT':'3306',
-        'OPTIONS': {
-            'charset': 'utf8mb4',  
-            'use_unicode': True,
-        },
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
 
 
 #cors 

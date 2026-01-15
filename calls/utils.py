@@ -30,7 +30,7 @@ def generate_agora_token(channel_name, uid, role=1):
 
 
 
-cred = credentials.Certificate("talkeasy/talkeasy-8420b-firebase-adminsdk-fbsvc-ac5f82316d.json")
+cred = credentials.Certificate("talkeasy/talkeasy-firebase-sdk.json")
 firebase_admin.initialize_app(cred)
 
 def send_fcm_notification(token, title, body, data=None):
