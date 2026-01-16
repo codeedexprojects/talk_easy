@@ -1,3 +1,7 @@
+# BUILD ESSENTIALS - MUST BE FIRST
+setuptools==69.0.3
+wheel==0.43.0
+
 # Core Framework
 Django==5.1.4
 djangorestframework==3.15.2
@@ -116,7 +120,7 @@ attrs==23.2.0
 
 # Deployment & Server
 gunicorn==23.0.0
-whitenoose==6.9.0
+whitenoise==6.9.0  # FIXED: was "whitenoose"
 greenlet==3.2.4
 gevent==25.5.1
 
