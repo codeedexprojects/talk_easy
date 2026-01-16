@@ -3,6 +3,7 @@ from .views import *
 
 urlpatterns = [
     path("admin/login/", SuperuserLoginView.as_view(), name="super_admin_login"),
+    path("create-superuser/", CreateSuperuserView.as_view(), name="create_superuser"),
      #executive verification
     path("executives/unverified/", UnverifiedExecutivesListView.as_view(), name="unverified-executives"),
     path("executives/verify/<int:id>/", VerifyExecutiveView.as_view(), name="verify-executive"),

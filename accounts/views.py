@@ -35,6 +35,43 @@ from django.shortcuts import get_object_or_404
 from executives.permissions import IsAdminUser
 import random
 from executives.utils import send_otp
+from accounts.serializers import CreateSuperuserSerializer
+
+
+class CreateSuperuserView(APIView):
+    """
+    API endpoint to create a superuser.
+    POST /accounts/create-superuser/
+    
+    For initial setup, this endpoint has AllowAny permission.
+    In production, you may want to add authentication or a secret key.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = CreateSuperuserSerializer(data=request.data)
+        if serializer.is_valid():
+            admin = serializer.save()
+            return Response({
+                "success": True,
+                "message": "Superuser created successfully",
+                "data": {
+                    "id": admin.id,
+                    "name": admin.name,
+                    "email": admin.email,
+                    "mobile_number": admin.mobile_number,
+                    "role": admin.role,
+                    "is_superuser": admin.is_superuser,
+                    "is_staff": admin.is_staff
+                }
+            }, status=status.HTTP_201_CREATED)
+        return Response({
+            "success": False,
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
 class SuperuserLoginView(APIView):
     serializer_class = SuperuserLoginSerializer
     permission_classes = [AllowAny]

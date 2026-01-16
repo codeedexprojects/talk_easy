@@ -9,6 +9,44 @@ class SuperuserLoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 
+class CreateSuperuserSerializer(serializers.ModelSerializer):
+    """Serializer for creating a superuser via API"""
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    class Meta:
+        model = Admin
+        fields = ['id', 'name', 'email', 'mobile_number', 'password', 'confirm_password']
+        extra_kwargs = {
+            'email': {'required': True},
+            'name': {'required': True},
+        }
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['confirm_password']:
+            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+        
+        # Check if email already exists
+        if Admin.objects.filter(email=attrs['email']).exists():
+            raise serializers.ValidationError({"email": "Admin with this email already exists."})
+        
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('confirm_password')
+        password = validated_data.pop('password')
+        
+        admin = Admin.objects.create(
+            **validated_data,
+            is_superuser=True,
+            is_staff=True,
+            role='superuser'
+        )
+        admin.set_password(password)
+        admin.save()
+        return admin
+
+
 class AdminSessionSerializer(serializers.ModelSerializer):
     admin_email = serializers.EmailField(source='admin.email', read_only=True)
     admin_name = serializers.CharField(source='admin.name', read_only=True)
