@@ -76,20 +76,9 @@ botocore==1.34.137
 s3transfer==0.10.2
 firebase-admin==7.1.0
 
-# Google Cloud - Minimal set to avoid conflicts
-google-api-core==2.25.1
-google-auth==2.38.0
-google-cloud-firestore==2.19.0
-google-cloud-storage==2.18.0
-# google-cloud-pubsub==2.18.0  # Comment out if not needed
-# google-cloud-dialogflow==2.25.0  # Comment out if not needed
-google-resumable-media==2.7.0
-google-crc32c==1.6.0
-googleapis-common-protos==1.66.0
-grpcio==1.68.0
-grpcio-status==1.68.0
-proto-plus==1.25.0
-protobuf==5.29.0
+# Google Cloud - Let firebase-admin manage these dependencies
+# Only add explicit versions if you need specific packages not pulled by firebase-admin
+google-cloud-storage>=2.18.0
 
 # ============================================================================
 # PAYMENT GATEWAYS
