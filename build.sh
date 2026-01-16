@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Exit on error
 set -o errexit
 
-# Install dependencies
+echo "Setting up Python environment..."
+
+# First install build essentials
+python -m pip install --upgrade pip setuptools wheel
+
+# Then install requirements
 pip install -r requirements.txt
 
-# Apply database migrations
-python manage.py migrate
-
 # Collect static files
-python manage.py collectstatic --no-input
+python manage.py collectstatic --noinput
+
+# Run migrations
+python manage.py migrate
