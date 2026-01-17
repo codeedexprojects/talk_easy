@@ -12,7 +12,7 @@ class UserProfileJWTAuthentication(JWTAuthentication):
         try:
             return UserProfile.objects.get(id=user_id)
         except UserProfile.DoesNotExist:
-            raise InvalidToken('User not found')
+            return None
 
     def authenticate(self, request):
         auth = super().authenticate(request)
