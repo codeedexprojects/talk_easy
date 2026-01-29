@@ -47,5 +47,10 @@ urlpatterns = [
     path("search/", UserSearchView.as_view(), name="user-search"),
     path('analytics/', UserAnalyticsView.as_view(), name='user-analytics'),
     path('ratings/', RatingListView.as_view(), name='rating-list'),
+    path('reports/create/', ReportCreateAPIView.as_view(), name='report-create'),
+    path('admin/reports/', AdminReportListUpdateAPIView.as_view(), name='admin-reports-list'),
+    path('admin/reports/<int:pk>/', AdminReportListUpdateAPIView.as_view(), name='admin-report-update'),
+    path('admin/reviews/', AdminReviewListUpdateAPIView.as_view(), name='admin-reviews-list'),
+    path('admin/reviews/<int:pk>/', AdminReviewListUpdateAPIView.as_view(), name='admin-review-delete'),
 
 ]

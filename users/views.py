@@ -798,8 +798,81 @@ class UserDeletionStatsView(APIView):
             "deleted_users": deleted_users,
             "recent_deletions": recent_deletions,
             "monthly_deletions": monthly_deletions,
+
             "deletion_rate": round((deleted_users / total_users * 100) if total_users > 0 else 0, 2)
         }, status=status.HTTP_200_OK)
+
+
+class ReportCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data.copy()
+        
+        # Determine reporter
+        if hasattr(request.user, 'role') and 'manager' in request.user.role: # Admin user
+             return Response({"error": "Admins cannot create reports this way."}, status=status.HTTP_403_FORBIDDEN)
+        
+        if isinstance(request.user, UserProfile):
+            data['reporter_user'] = request.user.id
+        elif isinstance(request.user, Executive):
+            data['reporter_executive'] = request.user.id
+        else:
+            pass
+
+        serializer = ReportSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class AdminReportListUpdateAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    pagination_class = CustomUserPagination
+
+    def get(self, request):
+        status_filter = request.query_params.get('status')
+        queryset = Report.objects.all().order_by('-created_at')
+        
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+            
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = ReportSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    def patch(self, request, pk):
+        try:
+            report = Report.objects.get(pk=pk)
+        except Report.DoesNotExist:
+            return Response({"error": "Report not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+        status_val = request.data.get('status')
+        if status_val not in ['pending', 'resolved', 'dismissed']:
+             return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+             
+        report.status = status_val
+        report.save()
+        return Response({"message": "Report status updated", "status": report.status}, status=status.HTTP_200_OK)
+
+class AdminReviewListUpdateAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        ratings = Rating.objects.all().order_by('-created_at')
+        serializer = RatingSerializer(ratings, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        try:
+            rating = Rating.objects.get(pk=pk)
+            rating.delete()
+            return Response({"message": "Rating deleted"}, status=status.HTTP_204_NO_CONTENT)
+        except Rating.DoesNotExist:
+            return Response({"error": "Rating not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 class UserAccountStatusView(APIView):

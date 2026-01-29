@@ -391,6 +391,72 @@ class ManagerExecutiveDeleteView(APIView):
             {"message": "Manager executive deleted successfully."},
             status=status.HTTP_204_NO_CONTENT
         )
+
+class ManagerUserCreateView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes = [JWTAuthentication]
+
+    def post(self, request):
+        if not request.user.is_superuser:
+            return Response(
+                {"error": "You do not have permission to create this role."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = ManagerUserCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {"message": "Manager User created successfully", "data": serializer.data},
+                status=status.HTTP_201_CREATED
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ManagerUserLoginView(APIView):
+    def post(self, request):
+        serializer = ManagerUserLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            return Response(
+                {
+                    "message": "Login successful",
+                    "data": serializer.validated_data
+                },
+                status=status.HTTP_200_OK
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ManagerUserDeleteView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+
+    def delete(self, request, pk):
+        if not (request.user.is_superuser or getattr(request.user, "role", "") == "admin"):
+            return Response(
+                {"error": "You do not have permission to delete a manager user."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        manager_user = get_object_or_404(Admin, id=pk, role="manager_user")
+        manager_user.delete()
+
+        return Response(
+            {"message": "Manager user deleted successfully."},
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+class ManagerListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+
+    def get(self, request):
+        role_type = request.query_params.get("role") # manager_user or manager_executive
+        
+        managers = Admin.objects.filter(role__startswith="manager")
+        if role_type:
+            managers = managers.filter(role=role_type)
+            
+        serializer = AdminUpdateSerializer(managers, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
     
 class AdminPasswordResetView(APIView):
 

@@ -236,3 +236,40 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "is_banned",
             "created_at",
         ]
+
+class ReportSerializer(serializers.ModelSerializer):
+    reporter_user_details = serializers.SerializerMethodField()
+    reporter_executive_details = serializers.SerializerMethodField()
+    reported_user_details = serializers.SerializerMethodField()
+    reported_executive_details = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Report
+        fields = [
+            'id', 'reporter_user', 'reporter_executive', 
+            'reported_user', 'reported_executive',
+            'reporter_user_details', 'reporter_executive_details',
+            'reported_user_details', 'reported_executive_details',
+            'reason', 'description', 'status', 'created_at', 'evidence'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def get_reporter_user_details(self, obj):
+        if obj.reporter_user:
+            return {'id': obj.reporter_user.id, 'name': obj.reporter_user.name, 'user_id': obj.reporter_user.user_id}
+        return None
+
+    def get_reporter_executive_details(self, obj):
+        if obj.reporter_executive:
+            return {'id': obj.reporter_executive.id, 'name': obj.reporter_executive.name, 'executive_id': obj.reporter_executive.executive_id}
+        return None
+
+    def get_reported_user_details(self, obj):
+        if obj.reported_user:
+            return {'id': obj.reported_user.id, 'name': obj.reported_user.name, 'user_id': obj.reported_user.user_id}
+        return None
+
+    def get_reported_executive_details(self, obj):
+        if obj.reported_executive:
+            return {'id': obj.reported_executive.id, 'name': obj.reported_executive.name, 'executive_id': obj.reported_executive.executive_id}
+        return None
