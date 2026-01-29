@@ -60,14 +60,23 @@ class UserRecharge(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     # Payment Tracking
-    razorpay_order_id = models.CharField(max_length=255, blank=True, null=True)
+    razorpay_order_id = models.CharField(max_length=255, unique=True, db_index=True, null=True, blank=True)
     razorpay_payment_id = models.CharField(max_length=255, blank=True, null=True)
     razorpay_signature = models.CharField(max_length=255, blank=True, null=True)
-    payment_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    payment_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True)
+    webhook_received_at = models.DateTimeField(null=True, blank=True)
+    retry_count = models.PositiveSmallIntegerField(default=0)
+    notes = models.JSONField(default=dict, blank=True)
 
     # Flags
-    is_successful = models.BooleanField(default=False)
+    is_successful = models.BooleanField(default=False, db_index=True)
     by_admin = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['payment_status', 'created_at']),
+            models.Index(fields=['user', 'payment_status']),
+        ]
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -152,5 +161,30 @@ class ExecutivePayoutRedeem(models.Model):
     account_number = models.CharField(max_length=255, blank=True, null=True, help_text="Account number for payment")
     ifsc_code = models.CharField(max_length=255, blank=True, null=True, help_text="IFSC code for payment")
 
+
     def __str__(self):
         return f"{self.executive.name} requested {self.redemption_option.amount} ({self.status})"
+
+
+class WebhookEvent(models.Model):
+    """
+    Model to track all Razorpay webhook events
+    Provides audit trail and ensures idempotent webhook processing
+    """
+    event_id = models.CharField(max_length=255, unique=True, db_index=True)
+    event_type = models.CharField(max_length=100, db_index=True)
+    payload = models.JSONField()
+    signature = models.CharField(max_length=512, blank=True, null=True)
+    processed = models.BooleanField(default=False, db_index=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['event_type', 'processed']),
+        ]
+    
+    def __str__(self):
+        return f"{self.event_type} - {self.event_id} ({'Processed' if self.processed else 'Pending'})"

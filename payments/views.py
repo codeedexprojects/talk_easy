@@ -76,6 +76,11 @@ class RechargePlanDeleteAPIView(APIView):
 
 from rest_framework import status, permissions
 from payments.models import UserRecharge
+from .services import RazorpayService
+from .exceptions import PaymentException
+import logging
+
+logger = logging.getLogger('payments')
 
 class RechargePlansView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -91,60 +96,61 @@ razorpay_client = razorpay.Client(
 )
 
 class UserRechargeView(APIView):
+    """
+    API endpoint to initiate a recharge for a user
+    Creates Razorpay order and UserRecharge record
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         user = request.user
         plan_id = request.data.get("plan_id")
 
+        if not plan_id:
+            return Response(
+                {"error": "plan_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         try:
             plan = RechargePlan.objects.get(id=plan_id, is_active=True, is_deleted=False)
         except RechargePlan.DoesNotExist:
-            return Response({"error": "Invalid recharge plan"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid or inactive recharge plan"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        coins_to_add = plan.get_adjusted_coin_package()
-        amount_to_pay = plan.calculate_final_price() 
-
-        # Razorpay expects amount in paise (integer)
-        razorpay_amount = int(amount_to_pay * 100)
-
-        # Create Razorpay order
         try:
-            razorpay_order = razorpay_client.order.create({
-                "amount": razorpay_amount,
-                "currency": "INR",
-                "payment_capture": 1,  
-                "notes": {
-                    "user_id": str(user.id),
-                    "plan_name": plan.plan_name,
-                    "coins_to_add": coins_to_add
-                }
-            })
+            # Use service layer to create order
+            order_data = RazorpayService.create_order(user, plan)
+            
+            return Response({
+                "message": "Razorpay order created successfully",
+                **order_data
+            }, status=status.HTTP_200_OK)
+            
+        except PaymentException as e:
+            logger.error(f"Payment error for user {user.id}: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         except Exception as e:
-            return Response({"error": f"Failed to create Razorpay order: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        recharge = UserRecharge.objects.create(
-            user=user,
-            plan=plan,
-            coins_added=coins_to_add,
-            amount_paid=amount_to_pay,
-            is_successful=False  
-        )
-
-        return Response({
-            "message": "Razorpay order created successfully",
-            "order_id": razorpay_order["id"],
-            "amount": float(amount_to_pay),
-            "currency": "INR",
-            "razorpay_key": settings.RAZORPAY_KEY_ID,
-            "coins_to_add": coins_to_add,
-        }, status=status.HTTP_200_OK)
+            logger.error(f"Unexpected error in recharge initiation: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Failed to create payment order. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
 
 import hmac
 import hashlib
 
 class VerifyRechargePaymentView(APIView):
+    """
+    API endpoint to verify payment after user completes Razorpay checkout
+    Verifies signature and updates recharge status
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -154,37 +160,121 @@ class VerifyRechargePaymentView(APIView):
         razorpay_signature = request.data.get("razorpay_signature")
 
         if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
-            return Response({"error": "Missing payment details"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Missing required payment details"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # Verify the signature
         try:
-            generated_signature = hmac.new(
-                settings.RAZORPAY_KEY_SECRET.encode(),
-                f"{razorpay_order_id}|{razorpay_payment_id}".encode(),
-                hashlib.sha256
-            ).hexdigest()
-
-            if generated_signature != razorpay_signature:
-                return Response({"error": "Invalid signature verification"}, status=status.HTTP_400_BAD_REQUEST)
-
+            # Use service layer to process payment
+            from .exceptions import (
+                InvalidSignatureException,
+                OrderNotFoundException,
+                PaymentAlreadyProcessedException
+            )
+            
+            result = RazorpayService.process_successful_payment(
+                razorpay_order_id,
+                razorpay_payment_id,
+                razorpay_signature
+            )
+            
+            return Response(result, status=status.HTTP_200_OK)
+            
+        except InvalidSignatureException as e:
+            logger.warning(f"Invalid signature for order {razorpay_order_id}")
+            return Response(
+                {"error": "Payment verification failed. Invalid signature."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except OrderNotFoundException as e:
+            logger.error(f"Order not found: {razorpay_order_id}")
+            return Response(
+                {"error": "Recharge order not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except PaymentAlreadyProcessedException as e:
+            # Return success for idempotency
+            try:
+                recharge = UserRecharge.objects.get(razorpay_order_id=razorpay_order_id)
+                return Response({
+                    "message": "Payment already processed",
+                    "coins_added": recharge.coins_added,
+                    "amount_paid": float(recharge.amount_paid),
+                    "current_coin_balance": recharge.user.stats.coin_balance
+                }, status=status.HTTP_200_OK)
+            except UserRecharge.DoesNotExist:
+                return Response(
+                    {"error": "Payment already processed but details not found"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         except Exception as e:
-            return Response({"error": f"Signature verification failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            logger.error(f"Payment verification error: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Payment verification failed. Please contact support."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-        # Mark recharge as successful
+
+class RazorpayWebhookView(APIView):
+    """
+    Webhook endpoint for Razorpay payment events
+    
+    Handles:
+    - payment.captured: Payment successful
+    - payment.failed: Payment failed
+    - order.paid: Order completed
+    """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        # Get webhook signature
+        signature = request.headers.get('X-Razorpay-Signature')
+        if not signature:
+            logger.warning("Webhook received without signature")
+            return Response(
+                {"error": "Missing signature"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get raw request body for signature verification
+        webhook_body = request.body.decode('utf-8')
+        
+        # Verify signature
+        if not RazorpayService.verify_webhook_signature(webhook_body, signature):
+            logger.warning("Webhook signature verification failed")
+            return Response(
+                {"error": "Invalid signature"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Extract event details
+        payload = request.data
+        event_type = payload.get('event')
+        
+        if not event_type:
+            logger.error("Webhook received without event type")
+            return Response(
+                {"error": "Missing event type"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        logger.info(f"Processing webhook event: {event_type}")
+        
         try:
-            recharge = UserRecharge.objects.filter(user=user, is_successful=False).latest('created_at')
-            recharge.is_successful = True
-            recharge.save()
+            # Process webhook using service layer
+            from .services import PaymentWebhookService
+            PaymentWebhookService.handle_webhook(event_type, payload)
+            
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Webhook processing failed: {str(e)}", exc_info=True)
+            # Return 200 to prevent Razorpay from retrying
+            # Error is logged for manual investigation
+            return Response({"status": "error", "message": str(e)}, status=status.HTTP_200_OK)
 
-            return Response({
-                "message": "Payment verified and recharge successful",
-                "coins_added": recharge.coins_added,
-                "amount_paid": float(recharge.amount_paid),
-                "current_coin_balance": user.stats.coin_balance
-            }, status=status.HTTP_200_OK)
-
-        except UserRecharge.DoesNotExist:
-            return Response({"error": "Pending recharge not found"}, status=status.HTTP_404_NOT_FOUND)
 
 class RedemptionOptionListCreateAPIView(APIView):
     permission_classes=[IsAdminUser]
