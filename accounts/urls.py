@@ -2,6 +2,8 @@ from django.urls import path
 from .views import *
 
 urlpatterns = [
+
+
     path("admin/login/", SuperuserLoginView.as_view(), name="super_admin_login"),
      #executive verification
     path("executives/unverified/", UnverifiedExecutivesListView.as_view(), name="unverified-executives"),
@@ -23,6 +25,8 @@ urlpatterns = [
     path('admin-update/', AdminUpdateView.as_view(), name='admin-self-update'),           
     path('admin/update/<int:pk>/', AdminUpdateView.as_view(), name='admin-update-by-id'),  
 ]
+
+
 
 
 
