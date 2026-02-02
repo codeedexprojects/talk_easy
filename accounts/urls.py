@@ -23,3 +23,11 @@ urlpatterns = [
     path('admin-update/', AdminUpdateView.as_view(), name='admin-self-update'),           
     path('admin/update/<int:pk>/', AdminUpdateView.as_view(), name='admin-update-by-id'),  
 ]
+
+
+
+
+
+
+
+
