@@ -9,7 +9,7 @@ import os
 from decouple import config
 
 # Determine which settings to use
-settings_module = config('DJANGO_SETTINGS_MODULE', default='talkeasy.settings.development')
+settings_module = config('DJANGO_SETTINGS_MODULE', default='talkeasy.settings.production')
 
 # Import the appropriate settings
 if 'production' in settings_module:
