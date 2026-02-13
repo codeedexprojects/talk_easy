@@ -132,13 +132,23 @@ class UserRechargeView(APIView):
         except PaymentException as e:
             logger.error(f"Payment error for user {user.id}: {str(e)}")
             return Response(
-                {"error": str(e)},
+                {
+                    "error": str(e),
+                    "error_type": "PaymentException"
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         except Exception as e:
-            logger.error(f"Unexpected error in recharge initiation: {str(e)}", exc_info=True)
+            logger.error(f"Unexpected error in recharge initiation: {type(e).__name__} - {str(e)}", exc_info=True)
+            
+            # In DEBUG mode, provide detailed error for debugging
+            error_response = {"error": "Failed to create payment order. Please try again."}
+            if settings.DEBUG:
+                error_response["error_details"] = str(e)
+                error_response["error_type"] = type(e).__name__
+                
             return Response(
-                {"error": "Failed to create payment order. Please try again."},
+                error_response,
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
@@ -294,6 +304,8 @@ class RedemptionOptionListCreateAPIView(APIView):
 
 
 class RedemptionOptionDetailAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
 
     def get_object(self, pk):
         try:
@@ -455,12 +467,19 @@ class UserRechargeHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
+        try:
+            user = request.user
 
-        recharges = UserRecharge.objects.filter(user=user).order_by('-created_at')
-        serializer = UserRechargeSerializer(recharges, many=True)
+            recharges = UserRecharge.objects.filter(user=user).order_by('-created_at')
+            serializer = UserRechargeSerializer(recharges, many=True)
 
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error fetching recharge history: {type(e).__name__} - {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Failed to fetch recharge history"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
 class AdminRechargeView(APIView):
     permission_classes = []

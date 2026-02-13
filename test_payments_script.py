@@ -4,6 +4,7 @@ import django
 import requests
 import sys
 import uuid
+import argparse
 from datetime import timedelta
 from django.utils import timezone
 import hmac
@@ -24,10 +25,28 @@ from executives.models import Executive, ExecutiveStats, ExecutiveToken
 from accounts.models import Admin
 from rest_framework_simplejwt.tokens import RefreshToken
 
+# --- Parse Arguments ---
+parser = argparse.ArgumentParser(description='Test TalkEasy Payment APIs')
+parser.add_argument('--production', action='store_true', help='Test against production URL')
+parser.add_argument('--url', type=str, help='Custom base URL to test against')
+parser.add_argument('--token', type=str, help='Bearer token for production testing')
+args = parser.parse_args()
+
 # --- Constants ---
-BASE_URL = "http://127.0.0.1:8000"
+if args.url:
+    BASE_URL = args.url.rstrip('/')  # Remove trailing slash if present
+elif args.production:
+    BASE_URL = "https://core.koottuapp.in"
+else:
+    BASE_URL = "http://127.0.0.1:8000"
+
 USER_MOBILE = '9876543210'
 EXECUTIVE_MOBILE = '9876543211'
+
+print(f"\n{'='*60}")
+print(f"Testing against: {BASE_URL}")
+print(f"Mode: {'PRODUCTION' if args.production or args.url else 'LOCAL'}")
+print(f"{'='*60}\n")
 
 def header_print(text):
     print(f"\n{'='*60}\n{text}\n{'='*60}")
@@ -146,16 +165,22 @@ def user_flow(user_token):
     # 1. Get Plans
     sub_header_print("1. Get Plans")
     url = f"{BASE_URL}/payments/recharge-plan-list/"
+    print(f"Testing URL: {url}")
     try:
-        resp = requests.get(url, headers=headers)
+        resp = requests.get(url, headers=headers, timeout=30)
+        print(f"Response Status: {resp.status_code}")
         if resp.status_code == 200:
             print("SUCCESS: Plans Retrieved")
             plans = resp.json()
             # print(plans)
             plan_id = plans[0]['id'] if plans else None
         else:
-            print(f"FAILED: {resp.status_code} - {resp.text}")
+            print(f"FAILED: {resp.status_code}")
+            print(f"Response: {resp.text[:500]}")  # First 500 chars
             return
+    except requests.exceptions.RequestException as e:
+        print(f"REQUEST ERROR: {e}")
+        return
     except Exception as e:
         print(f"ERROR: {e}")
         return
@@ -167,17 +192,23 @@ def user_flow(user_token):
     # 2. Initiate Payment (Recharge)
     sub_header_print("2. Initiate Recharge")
     url = f"{BASE_URL}/payments/recharge/initiate/"
+    print(f"Testing URL: {url}")
     data = {"plan_id": plan_id}
     order_id = None
     try:
-        resp = requests.post(url, json=data, headers=headers)
+        resp = requests.post(url, json=data, headers=headers, timeout=30)
+        print(f"Response Status: {resp.status_code}")
         if resp.status_code == 200:
             print("SUCCESS: Recharge Initiated")
             order_id = resp.json().get('order_id')
             print(f"Order ID: {order_id}")
         else:
-            print(f"FAILED: {resp.status_code} - {resp.text}")
+            print(f"FAILED: {resp.status_code}")
+            print(f"Response: {resp.text[:500]}")  # First 500 chars
             return
+    except requests.exceptions.RequestException as e:
+        print(f"REQUEST ERROR: {e}")
+        return
     except Exception as e:
         print(f"ERROR: {e}")
         return
@@ -378,20 +409,133 @@ def admin_flow(admin_token, user_id, executive_id):
     except Exception as e:
         print(f"ERROR: {e}")
 
+    # 5. RedemptionOption CRUD
+    sub_header_print("5. RedemptionOption CRUD Operations")
+    
+    # 5.1 Create RedemptionOption
+    print("\n5.1 Create RedemptionOption")
+    url = f"{BASE_URL}/payments/redemption-options/"
+    test_amount = 1500.00
+    data = {
+        "amount": test_amount,
+        "is_active": True
+    }
+    redemption_option_id = None
+    try:
+        resp = requests.post(url, json=data, headers=headers)
+        if resp.status_code == 201:
+            print("SUCCESS: RedemptionOption Created")
+            redemption_option_id = resp.json().get('id')
+            print(f"Created RedemptionOption ID: {redemption_option_id}")
+        else:
+            print(f"FAILED: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    # 5.2 List RedemptionOptions
+    print("\n5.2 List RedemptionOptions")
+    url = f"{BASE_URL}/payments/redemption-options/"
+    try:
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            print("SUCCESS: RedemptionOptions Listed")
+            options = resp.json()
+            print(f"Total options: {len(options)}")
+        else:
+            print(f"FAILED: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    if redemption_option_id:
+        # 5.3 Retrieve RedemptionOption
+        print("\n5.3 Retrieve Single RedemptionOption")
+        url = f"{BASE_URL}/payments/redemption-options/{redemption_option_id}/"
+        try:
+            resp = requests.get(url, headers=headers)
+            if resp.status_code == 200:
+                print("SUCCESS: RedemptionOption Retrieved")
+                option_data = resp.json()
+                print(f"Amount: ₹{option_data.get('amount')}")
+            else:
+                print(f"FAILED: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+        # 5.4 Update RedemptionOption (PATCH)
+        print("\n5.4 Update RedemptionOption")
+        url = f"{BASE_URL}/payments/redemption-options/{redemption_option_id}/"
+        data = {
+            "is_active": False
+        }
+        try:
+            resp = requests.patch(url, json=data, headers=headers)
+            if resp.status_code == 200:
+                print("SUCCESS: RedemptionOption Updated")
+                print(f"is_active: {resp.json().get('is_active')}")
+            else:
+                print(f"FAILED: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+        # 5.5 Delete RedemptionOption (Soft Delete)
+        print("\n5.5 Delete RedemptionOption (Soft Delete)")
+        url = f"{BASE_URL}/payments/redemption-options/{redemption_option_id}/"
+        try:
+            resp = requests.delete(url, headers=headers)
+            if resp.status_code == 204:
+                print("SUCCESS: RedemptionOption Deleted (Soft Delete)")
+            else:
+                print(f"FAILED: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+        # 5.6 Verify Deletion
+        print("\n5.6 Verify Deletion")
+        url = f"{BASE_URL}/payments/redemption-options/{redemption_option_id}/"
+        try:
+            resp = requests.get(url, headers=headers)
+            if resp.status_code == 404:
+                print("SUCCESS: Deleted option not found (as expected)")
+            elif resp.status_code == 200:
+                print(f"INFO: Option still accessible after delete")
+            else:
+                print(f"Response: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
 
 if __name__ == "__main__":
     try:
-        # Setup Data
-        user, user_token, plan = setup_user_data()
-        exec_user, exec_token, option = setup_executive_data()
-        
-        # Run Tests
-        # Run Tests
-        user_flow(user_token)
-        executive_flow(exec_token, option)
-        
-        admin_user, admin_token = setup_admin_data()
-        admin_flow(admin_token, user.id, exec_user.id)
+        # If production mode with custom token, use it directly
+        if (args.production or args.url) and args.token:
+            header_print("PRODUCTION MODE - Using Provided Token")
+            print("Testing with provided authentication token...")
+            
+            # Test with provided token
+            user_flow(args.token)
+            
+            print("\n" + "="*60)
+            print("Production testing completed!")
+            print("Review the output above for any failures.")
+            print("="*60)
+        else:
+            # Local mode - setup data and run full tests
+            header_print("LOCAL MODE - Setting Up Test Data")
+            
+            # Setup Data
+            user, user_token, plan = setup_user_data()
+            exec_user, exec_token, option = setup_executive_data()
+            
+            # Run Tests
+            user_flow(user_token)
+            executive_flow(exec_token, option)
+            
+            admin_user, admin_token = setup_admin_data()
+            admin_flow(admin_token, user.id, exec_user.id)
+            
+            print("\n" + "="*60)
+            print("Local testing completed!")
+            print("="*60)
         
     except Exception as e:
         print(f"\nCRITICAL ERROR: {e}")

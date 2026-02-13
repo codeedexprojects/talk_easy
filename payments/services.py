@@ -49,11 +49,22 @@ class RazorpayService:
         """
         logger.info(f"Creating Razorpay order for user {user.id}, plan {plan.id}")
         
+        # Ensure user has stats
+        from users.models import UserStats
+        if not hasattr(user, 'stats'):
+            logger.warning(f"User {user.id} missing stats, creating now")
+            UserStats.objects.create(user=user)
+            user.refresh_from_db()
+        
         coins_to_add = plan.get_adjusted_coin_package()
         amount_to_pay = plan.calculate_final_price()
         razorpay_amount = int(amount_to_pay * 100)  # Convert to paise
         
         try:
+            # Log Razorpay configuration (without exposing secrets)
+            logger.info(f"Using Razorpay Key ID: {settings.RAZORPAY_KEY_ID[:12]}...")
+            logger.info(f"Order details - Amount: ₹{amount_to_pay}, Coins: {coins_to_add}")
+            
             # Create Razorpay order
             razorpay_order = razorpay_client.order.create({
                 "amount": razorpay_amount,
@@ -91,8 +102,19 @@ class RazorpayService:
                 "coins_to_add": coins_to_add,
             }
             
+        except razorpay.errors.BadRequestError as e:
+            logger.error(f"Razorpay Bad Request Error: {str(e)}", exc_info=True)
+            logger.error(f"Error details - Status Code: {e.status_code if hasattr(e, 'status_code') else 'N/A'}")
+            raise Exception(f"Razorpay API Error: {str(e)}")
+        except razorpay.errors.GatewayError as e:
+            logger.error(f"Razorpay Gateway Error (Network issue): {str(e)}", exc_info=True)
+            raise Exception(f"Payment gateway connectivity issue: {str(e)}")
+        except razorpay.errors.ServerError as e:
+            logger.error(f"Razorpay Server Error: {str(e)}", exc_info=True)
+            raise Exception(f"Payment gateway server error: {str(e)}")
         except Exception as e:
-            logger.error(f"Failed to create Razorpay order: {str(e)}", exc_info=True)
+            logger.error(f"Unexpected error creating Razorpay order: {type(e).__name__} - {str(e)}", exc_info=True)
+            logger.error(f"User ID: {user.id}, Plan ID: {plan.id}, Amount: {razorpay_amount} paise")
             raise
 
     @staticmethod
