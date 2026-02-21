@@ -46,6 +46,21 @@ class RegisterOrLoginView(APIView):
                     'is_existing_user': True
                 }, status=status.HTTP_403_FORBIDDEN)
 
+            # ✅ Test login shortcut (bypass SMS OTP)
+            if mobile_number == "+918086851333":
+                otp = "123456"
+                user.otp = otp
+                user.save(update_fields=['otp'])
+                return Response({
+                    'message': 'Test login: OTP sent successfully (static for testing).',
+                    'user_id': user.id,
+                    'mobile_number': user.mobile_number,
+                    'otp': user.otp,
+                    'status': True,
+                    'is_existing_user': True,
+                    'user_main_id': user.user_id,
+                }, status=status.HTTP_200_OK)
+
             # Send OTP
             try:
                 send_otp(mobile_number, otp)
@@ -88,14 +103,18 @@ class RegisterOrLoginView(APIView):
             is_deleted_user = DeletedUser.objects.filter(mobile_number=mobile_number).exists()
             initial_coin_balance = 0 if is_deleted_user else 1000
 
-            # Send OTP
-            try:
-                send_otp(mobile_number, otp)
-            except Exception as e:
-                return Response({
-                    'message': 'Failed to send OTP. Please try again later.',
-                    'error': str(e)
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # ✅ Test registration shortcut
+            if mobile_number == "+918086851333":
+                otp = "123456"
+            else:
+                # Send OTP
+                try:
+                    send_otp(mobile_number, otp)
+                except Exception as e:
+                    return Response({
+                        'message': 'Failed to send OTP. Please try again later.',
+                        'error': str(e)
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             # Create new user
             user = UserProfile.objects.create(
@@ -154,7 +173,12 @@ class VerifyOTPView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            user = UserProfile.objects.get(mobile_number=mobile_number, otp=otp)
+            # ✅ Test verification shortcut
+            if mobile_number == "+918086851333" and otp == "123456":
+                user = UserProfile.objects.get(mobile_number=mobile_number)
+            else:
+                user = UserProfile.objects.get(mobile_number=mobile_number, otp=otp)
+            
             is_existing_user = user.is_verified
             
             user.otp = None
