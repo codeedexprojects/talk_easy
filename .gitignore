@@ -76,3 +76,6 @@ celerybeat.pid
 
 # OS
 Thumbs.db
+
+# Firebase Secrets
+talkeasy/*.json
