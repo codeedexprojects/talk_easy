@@ -206,14 +206,17 @@ class AdminUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Admin
         fields = [
+            'id',
             'name',
+            'email',
             'mobile_number',
             'role',
             'custom_permissions',
             'is_banned',
             'is_active',
+            'created_at',
         ]
-        read_only_fields = ['email', 'created_at']
+        read_only_fields = ['id', 'email', 'created_at']
 
     def validate_role(self, value):
         # Only superusers can change role
