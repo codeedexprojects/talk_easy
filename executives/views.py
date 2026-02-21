@@ -3,7 +3,13 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from django.db.models import Max
 from .models import Executive, ExecutiveStats
+from django.db.models import Count, Sum, Avg, Q
+from django.db.models.functions import Coalesce
+from decimal import Decimal
+import logging
 from .serializers import *
+
+logger = logging.getLogger(__name__)
 import re
 from django.contrib.auth import authenticate
 import random
@@ -310,8 +316,43 @@ class ExecutiveUpdateByIDAPIView(APIView):
         except Executive.DoesNotExist:
             return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Import locally to avoid circular dependencies if any
+        from calls.models import AgoraCallHistory
+        from users.models import Rating
+
+        # Dynamic Aggregation for precision
+        stats_data = AgoraCallHistory.objects.filter(executive=executive).aggregate(
+            total_calls=Count('id'),
+            completed_calls=Count('id', filter=Q(status='ended')),
+            missed_calls=Count('id', filter=Q(status='missed')),
+            total_duration_seconds=Coalesce(Sum('duration_seconds', filter=Q(status='ended')), 0),
+            total_earnings=Coalesce(Sum('executive_earnings', filter=Q(status='ended')), Decimal('0.00'))
+        )
+
+        avg_rating = Rating.objects.filter(executive=executive).aggregate(
+            avg_rating=Avg('rating')
+        )['avg_rating'] or 0.0
+
+        total_call_minutes = round(stats_data['total_duration_seconds'] / 60, 2)
+
+        # Logging for debug
+        logger.info(f"Aggregated stats for Executive {id}: {stats_data}, Avg Rating: {avg_rating}")
+
+        # Basic executive data from serializer
         serializer = ExecutiveSerializer(executive)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        data = serializer.data
+
+        # Update data with aggregated stats
+        data.update({
+            "total_calls": stats_data['total_calls'],
+            "completed_calls": stats_data['completed_calls'],
+            "missed_calls": stats_data['missed_calls'],
+            "total_call_minutes": total_call_minutes,
+            "total_earnings": float(stats_data['total_earnings']),
+            "average_rating": round(avg_rating, 1)
+        })
+
+        return Response(data, status=status.HTTP_200_OK)
 
     def put(self, request, id):
         return self.update_executive(request, id)
