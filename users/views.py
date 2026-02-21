@@ -850,6 +850,11 @@ class ReportCreateAPIView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+from django.db.models import Count, Sum, Q
+from payments.models import UserRecharge
+from calls.models import AgoraCallHistory
+
 class AdminReportListUpdateAPIView(APIView):
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
@@ -857,15 +862,98 @@ class AdminReportListUpdateAPIView(APIView):
 
     def get(self, request):
         status_filter = request.query_params.get('status')
-        queryset = Report.objects.all().order_by('-created_at')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
         
+        users_qs = UserProfile.objects.all()
+        execs_qs = Executive.objects.all()
+        payments_qs = UserRecharge.objects.all()
+        calls_qs = AgoraCallHistory.objects.all()
+        
+        reports_qs = Report.objects.select_related(
+            'reporter_user', 'reporter_executive', 
+            'reported_user', 'reported_executive'
+        ).order_by('-created_at')
+
+        if start_date:
+            users_qs = users_qs.filter(created_at__date__gte=start_date)
+            execs_qs = execs_qs.filter(created_at__date__gte=start_date)
+            payments_qs = payments_qs.filter(created_at__date__gte=start_date)
+            calls_qs = calls_qs.filter(start_time__date__gte=start_date)
+            reports_qs = reports_qs.filter(created_at__date__gte=start_date)
+        
+        if end_date:
+            users_qs = users_qs.filter(created_at__date__lte=end_date)
+            execs_qs = execs_qs.filter(created_at__date__lte=end_date)
+            payments_qs = payments_qs.filter(created_at__date__lte=end_date)
+            calls_qs = calls_qs.filter(start_time__date__lte=end_date)
+            reports_qs = reports_qs.filter(created_at__date__lte=end_date)
+
+        user_stats = users_qs.aggregate(
+            total=Count('id'),
+            active=Count('id', filter=Q(is_active=True, is_banned=False, is_suspended=False)),
+            banned=Count('id', filter=Q(is_banned=True)),
+            suspended=Count('id', filter=Q(is_suspended=True))
+        )
+
+        exec_stats = execs_qs.aggregate(
+            total=Count('id'),
+            active=Count('id', filter=Q(status='active')),
+            inactive=Count('id', filter=Q(status='inactive'))
+        )
+        
+        payment_stats = payments_qs.aggregate(
+            total_transactions=Count('id'),
+            total_amount=Sum('amount_paid', filter=Q(is_successful=True)),
+            successful=Count('id', filter=Q(is_successful=True)),
+            failed=Count('id', filter=Q(is_successful=False))
+        )
+        
+        call_stats = calls_qs.aggregate(
+            total_calls=Count('id'),
+            completed=Count('id', filter=Q(status='ended')),
+            missed=Count('id', filter=Q(status='missed')),
+            cancelled=Count('id', filter=Q(status='cancelled'))
+        )
+        
+        summary = {
+            "executives": {
+                "total": exec_stats['total'] or 0,
+                "active": exec_stats['active'] or 0,
+                "inactive": exec_stats['inactive'] or 0
+            },
+            "users": {
+                "total": user_stats['total'] or 0,
+                "active": user_stats['active'] or 0,
+                "banned": user_stats['banned'] or 0,
+                "suspended": user_stats['suspended'] or 0
+            },
+            "payments": {
+                "total_transactions": payment_stats['total_transactions'] or 0,
+                "total_amount": payment_stats['total_amount'] or 0.0,
+                "successful": payment_stats['successful'] or 0,
+                "failed": payment_stats['failed'] or 0
+            },
+            "calls": {
+                "total_calls": call_stats['total_calls'] or 0,
+                "completed": call_stats['completed'] or 0,
+                "missed": call_stats['missed'] or 0,
+                "cancelled": call_stats['cancelled'] or 0
+            }
+        }
+
         if status_filter:
-            queryset = queryset.filter(status=status_filter)
+            reports_qs = reports_qs.filter(status=status_filter)
             
         paginator = self.pagination_class()
-        page = paginator.paginate_queryset(queryset, request)
+        page = paginator.paginate_queryset(reports_qs, request)
         serializer = ReportSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        paginated_response = paginator.get_paginated_response(serializer.data)
+
+        return Response({
+            "summary": summary,
+            "reports": paginated_response.data
+        }, status=status.HTTP_200_OK)
 
     def patch(self, request, pk):
         try:
