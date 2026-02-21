@@ -137,9 +137,11 @@ def setup_admin_data():
     header_print("SETTING UP ADMIN DATA")
     email = "admin@test.com"
     password = "adminpassword"
+    phone = "+919876543210"
     admin, created = Admin.objects.get_or_create(email=email)
     
     admin.name = "Super Admin"
+    admin.mobile_number = phone
     if created:
         admin.set_password(password)
     admin.is_superuser = True
@@ -148,6 +150,7 @@ def setup_admin_data():
     admin.save()
     
     print(f"Admin ID: {admin.id}")
+    print(f"Admin Phone: {admin.mobile_number}")
     
     # Generate Token
     refresh = RefreshToken.for_user(admin)
@@ -378,10 +381,25 @@ def admin_flow(admin_token, user_id, executive_id):
         resp = requests.get(url, headers=headers)
         if resp.status_code == 200:
              print("SUCCESS: Managers Listed")
+             data = resp.json()
+             if isinstance(data, list) and len(data) > 0:
+                 manager_id = data[0]['id']
+                 print(f"  Picked Manager ID {manager_id} for detail test")
+                 
+                 # 2.1 Manager Detail
+                 sub_header_print("2.1 Manager Detail")
+                 detail_url = f"{BASE_URL}/accounts/managers/{manager_id}/"
+                 d_resp = requests.get(detail_url, headers=headers)
+                 if d_resp.status_code == 200:
+                     print(f"SUCCESS: Manager {manager_id} Detail Retrieved")
+                     print(f"  Name: {d_resp.json().get('data', {}).get('name')}")
+                 else:
+                     print(f"FAILED: {d_resp.status_code} - {d_resp.text}")
         else:
              print(f"FAILED: {resp.status_code} - {resp.text}")
     except Exception as e:
         print(f"ERROR: {e}")
+
 
     # 3. Reports
     sub_header_print("3. Reports Handling")
@@ -504,6 +522,120 @@ def admin_flow(admin_token, user_id, executive_id):
             print(f"ERROR: {e}")
 
 
+def admin_profile_flow(admin_token):
+    """Test Admin Profile GET and PATCH (JWT-protected)."""
+    header_print("STARTING ADMIN PROFILE TESTS")
+    headers = {
+        "Authorization": f"Bearer {admin_token}",
+        "Content-Type": "application/json"
+    }
+
+    # 1. GET Admin Profile
+    sub_header_print("1. GET Admin Profile")
+    url = f"{BASE_URL}/accounts/admin-profile/"
+    try:
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            data = resp.json()
+            print("SUCCESS: Admin Profile Retrieved")
+            print(f"  Name: {data.get('data', {}).get('name')}")
+            print(f"  Email: {data.get('data', {}).get('email')}")
+            print(f"  Role: {data.get('data', {}).get('role')}")
+            raw = data.get('data', {})
+            for sensitive_field in ['otp', 'otp_hash', 'password']:
+                if sensitive_field in raw:
+                    print(f"  WARNING: Sensitive field '{sensitive_field}' exposed!")
+                else:
+                    print(f"  OK: '{sensitive_field}' not in response (secure)")
+        else:
+            print(f"FAILED: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    # 2. PATCH Admin Profile
+    sub_header_print("2. PATCH Admin Profile (update name)")
+    url = f"{BASE_URL}/accounts/admin-profile/"
+    data = {"name": "Super Admin Updated"}
+    try:
+        resp = requests.patch(url, json=data, headers=headers)
+        if resp.status_code == 200:
+            updated_name = resp.json().get('data', {}).get('name')
+            print(f"SUCCESS: Profile Updated — name is now '{updated_name}'")
+        else:
+            print(f"FAILED: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    # 3. Unauthenticated access should be rejected
+    sub_header_print("3. Unauthenticated access rejected")
+    url = f"{BASE_URL}/accounts/admin-profile/"
+    try:
+        resp = requests.get(url)
+        if resp.status_code in (401, 403):
+            print("SUCCESS: Unauthenticated request correctly rejected")
+        else:
+            print(f"FAILED: Expected 401/403, got {resp.status_code}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+
+def admin_password_reset_flow(admin_phone):
+    """
+    Test the 3-step phone-based OTP password reset flow.
+    OTP is sent via 2factor.in SMS (check console if in dev mode).
+    """
+    header_print("STARTING ADMIN PASSWORD RESET FLOW TESTS")
+
+    # Step 1: Request OTP
+    sub_header_print("1. Request OTP (POST /accounts/admin/password-reset/send-otp/)")
+    url = f"{BASE_URL}/accounts/admin/password-reset/send-otp/"
+    data = {"phone": admin_phone}
+    try:
+        resp = requests.post(url, json=data)
+        if resp.status_code == 200:
+            print(f"SUCCESS: {resp.json().get('message')}")
+        elif resp.status_code == 429:
+            print(f"RATE LIMIT: {resp.json().get('message')} (run again after 60s)")
+        else:
+            print(f"FAILED: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    # Step 2: Verify with wrong OTP
+    sub_header_print("2. Verify with wrong OTP (expect failure)")
+    url = f"{BASE_URL}/accounts/admin/password-reset/verify-otp/"
+    data = {"phone": admin_phone, "otp": "000000"}
+    try:
+        resp = requests.post(url, json=data)
+        if resp.status_code == 400:
+            err = resp.json().get('errors', {}).get('otp', [''])[0]
+            print(f"SUCCESS: Wrong OTP correctly rejected — {err}")
+        else:
+            print(f"UNEXPECTED: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    # Step 3: Attempt Reset without verification
+    sub_header_print("3. Reset without verified OTP (expect failure)")
+    url = f"{BASE_URL}/accounts/admin/password-reset/reset/"
+    data = {"phone": admin_phone, "new_password": "StrongPass123!"}
+    try:
+        resp = requests.post(url, json=data)
+        if resp.status_code == 400:
+            err = resp.json().get('errors', {}).get('phone', [''])[0]
+            print(f"SUCCESS: Reset rejected as expected — {err}")
+        else:
+            print(f"UNEXPECTED: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    print("\nMANUAL STEP — To complete the full reset flow:")
+    print(f"  1. Check server console for the OTP sent to {admin_phone}")
+    print(f"  2. POST /accounts/admin/password-reset/verify-otp/ with phone + real OTP")
+    print(f"  3. POST /accounts/admin/password-reset/reset/ with new strong password")
+    print("─"*60)
+
+
 if __name__ == "__main__":
     try:
         # If production mode with custom token, use it directly
@@ -532,7 +664,12 @@ if __name__ == "__main__":
             
             admin_user, admin_token = setup_admin_data()
             admin_flow(admin_token, user.id, exec_user.id)
-            
+
+            # ── Admin Profile & Password Reset (new) ──
+            admin_profile_flow(admin_token)
+            admin_password_reset_flow(admin_user.mobile_number)
+
+
             print("\n" + "="*60)
             print("Local testing completed!")
             print("="*60)

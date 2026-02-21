@@ -31,8 +31,6 @@ urlpatterns = [
     path('payments/', include('payments.urls')),
 
 
-
-
 ]
 
 if settings.DEBUG:
