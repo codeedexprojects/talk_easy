@@ -1,4 +1,5 @@
 import json
+import logging
 from urllib.parse import parse_qs
 
 from channels.db import database_sync_to_async
@@ -13,6 +14,8 @@ import jwt
 from executives.models import Executive, ExecutiveToken
 from users.models import UserProfile
 
+logger = logging.getLogger("executives")
+
 EXECUTIVE_STATUS = {}
 
 
@@ -26,16 +29,16 @@ class JWTAuthMixin:
             decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
             user_id = decoded_token.get('user_id')
             if not user_id:
-                print("DEBUG: JWT missing user_id")
+                logger.warning("[WS] JWT missing user_id")
                 return None
 
             user = await self.get_user_by_id_jwt(user_id)
             if user:
-                print(f"DEBUG: JWT auth success for user id {user_id}")
+                logger.info("[WS] JWT auth success for user_id=%s", user_id)
             return user
 
         except (InvalidToken, TokenError, jwt.ExpiredSignatureError, jwt.DecodeError) as exc:
-            print(f"DEBUG: JWT authentication failed: {exc}")
+            logger.warning("[WS] JWT authentication failed: %s", exc)
             return None
 
     @database_sync_to_async
@@ -58,21 +61,21 @@ class CustomTokenAuthMixin:
         try:
             token_obj = await self.get_token_by_refresh_token(token)
             if not token_obj:
-                print("DEBUG: Custom token not found")
+                logger.warning("[WS] Custom executive token not found")
                 return None
 
             if getattr(token_obj, "expires_at", None):
                 if token_obj.expires_at < timezone.now():
-                    print(f"DEBUG: Token expired at {token_obj.expires_at}")
+                    logger.warning("[WS] Executive token expired at %s", token_obj.expires_at)
                     return None
 
             executive = token_obj.executive
             if executive:
-                print(f"DEBUG: Custom token auth success for executive id {executive.id}")
+                logger.info("[WS] Custom token auth success for executive id=%s", executive.id)
             return executive
 
         except Exception as exc:
-            print(f"DEBUG: Custom token authentication failed: {exc}")
+            logger.error("[WS] Custom token authentication failed: %s", exc, exc_info=True)
             return None
 
     @database_sync_to_async
@@ -106,7 +109,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             token = params.get('token', [None])[0]
 
         if not token:
-            print("DEBUG: Connect rejected: no executive token presented")
+            logger.warning("[WS] ExecutivesConsumer: connect rejected — no token presented")
             await self.close(code=4001)
             return
 
@@ -122,7 +125,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             return
 
         if not isinstance(authenticated_user, Executive):
-            print("DEBUG: Connect rejected: token not linked to an Executive")
+            logger.warning("[WS] ExecutivesConsumer: connect rejected — token not linked to an Executive")
             await self.close(code=4003)
             return
 
@@ -130,12 +133,13 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
 
         path_exec_id = self.scope['url_route']['kwargs'].get('executive_id')
         if path_exec_id and str(path_exec_id) != str(self.user.executive_id):
-            print("DEBUG: Path exec ID mismatch; closing")
+            logger.warning("[WS] ExecutivesConsumer: path executive_id mismatch; closing")
             await self.close(code=4003)
             return
 
         self.executive_id = str(self.user.executive_id)
         self.users_group_name = "users_online"
+        # ✅ Group name format: executive_<executive_id_code> — MUST match group_send in views.py
         self.private_group_name = f"executive_{self.executive_id}"
 
         await self.accept()
@@ -149,7 +153,8 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         await self.update_executive_status("online")
         await self.broadcast_status()
 
-        print(f"DEBUG: Executive connected: {self.user.name} ({self.executive_id})")
+        logger.info("[WS] Executive connected: %s (executive_id=%s, group=%s)",
+                    self.user.name, self.executive_id, self.private_group_name)
 
     async def disconnect(self, close_code):
         if hasattr(self, "executive_id"):
@@ -162,7 +167,8 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         if hasattr(self, "private_group_name"):
             await self.channel_layer.group_discard(self.private_group_name, self.channel_name)
 
-        print(f"DEBUG: Executive disconnected: {getattr(self, 'executive_id', 'unknown')}")
+        logger.info("[WS] Executive disconnected: executive_id=%s (code=%s)",
+                    getattr(self, 'executive_id', 'unknown'), close_code)
 
     async def receive(self, text_data):
         try:
@@ -226,7 +232,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
 
         except Exception as exc:
-            print(f"DEBUG: Error in ExecutivesConsumer.receive: {exc}")
+            logger.error("[WS] Error in ExecutivesConsumer.receive: %s", exc, exc_info=True)
             await self.send(text_data=json.dumps({"error": str(exc)}))
 
     @database_sync_to_async
@@ -235,9 +241,9 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             self.user.is_online = (status == "online")
             self.user.on_call = (status == "oncall")
             self.user.save(update_fields=['is_online', 'on_call'])
-            print(f"DEBUG: DB status updated for {self.user.executive_id}: {status}")
+            logger.info("[WS] DB status updated for executive_id=%s: %s", self.user.executive_id, status)
         except Exception as exc:
-            print(f"DEBUG: Error updating Exec DB status: {exc}")
+            logger.error("[WS] Error updating executive DB status: %s", exc, exc_info=True)
 
     async def broadcast_status(self):
         executive_data = await self.get_executives_detailed_status()
@@ -275,10 +281,10 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 "data": event["data"]
             }))
         except Exception as exc:
-            print(f"DEBUG: Error sending status_update to exec client: {exc}")
+            logger.error("[WS] Error sending status_update to executive client: %s", exc, exc_info=True)
 
     async def call_event(self, event):
-
+        """Legacy handler kept for backward compatibility (UsersConsumer → ExecutivesConsumer path)."""
         try:
             data = event.get("data", {})
             await self.send(text_data=json.dumps({
@@ -286,7 +292,55 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 "data": data
             }))
         except Exception as exc:
-            print(f"DEBUG: Error in call_event: {exc}")
+            logger.error("[WS] Error in call_event handler: %s", exc, exc_info=True)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ✅ FIX: Handlers for events sent via channel_layer.group_send() from
+    #         calls/views.py → CallInitiateView.send_incoming_call_notification
+    # The method name MUST exactly match the "type" field in the group_send payload.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def incoming_call(self, event):
+        """Deliver incoming call notification to connected executive."""
+        try:
+            logger.info("[WS] Delivering incoming_call event to executive_id=%s, call_id=%s",
+                        getattr(self, 'executive_id', 'unknown'), event.get('call_id'))
+            await self.send(text_data=json.dumps({
+                "type": "incoming_call",
+                "call_id": event.get("call_id"),
+                "channel_name": event.get("channel_name"),
+                "caller_name": event.get("caller_name"),
+                "caller_uid": event.get("caller_uid"),
+                "executive_token": event.get("executive_token"),
+                "callee_uid": event.get("callee_uid"),
+                "timestamp": event.get("timestamp"),
+                "coins_per_second": event.get("coins_per_second"),
+                "amount_per_min": event.get("amount_per_min"),
+            }))
+        except Exception as exc:
+            logger.error("[WS] Error delivering incoming_call to executive: %s", exc, exc_info=True)
+
+    async def call_missed(self, event):
+        """Notify executive that a call was missed (no answer within timeout)."""
+        try:
+            logger.info("[WS] Delivering call_missed event to executive_id=%s, call_id=%s",
+                        getattr(self, 'executive_id', 'unknown'), event.get('call_id'))
+            await self.send(text_data=json.dumps({
+                "type": "call_missed",
+                "call_id": event.get("call_id"),
+            }))
+        except Exception as exc:
+            logger.error("[WS] Error delivering call_missed to executive: %s", exc, exc_info=True)
+
+    async def call_ended(self, event):
+        """Notify executive that a call has ended."""
+        try:
+            await self.send(text_data=json.dumps({
+                "type": "call_ended",
+                **{k: v for k, v in event.items() if k != 'type'},
+            }))
+        except Exception as exc:
+            logger.error("[WS] Error delivering call_ended to executive: %s", exc, exc_info=True)
 
 
 # -------------------- UsersConsumer --------------------
@@ -334,7 +388,8 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
             }
         }))
 
-        print(f"DEBUG: User connected: {getattr(self.user, 'id', 'unknown')}")
+        logger.info("[WS] User connected: user_id=%s, group=%s",
+                    getattr(self.user, 'id', 'unknown'), self.user_group_name)
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name'):
@@ -342,7 +397,8 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
         if hasattr(self, 'user_group_name'):
             await self.channel_layer.group_discard(self.user_group_name, self.channel_name)
 
-        print(f"DEBUG: User disconnected: {getattr(self.user, 'id', 'unknown')}")
+        logger.info("[WS] User disconnected: user_id=%s (code=%s)",
+                    getattr(self, 'user', None) and getattr(self.user, 'id', 'unknown'), close_code)
 
     async def receive(self, text_data):
 
@@ -384,7 +440,7 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
             await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
 
         except Exception as exc:
-            print(f"DEBUG: Error in UsersConsumer.receive: {exc}")
+            logger.error("[WS] Error in UsersConsumer.receive: %s", exc, exc_info=True)
             await self.send(text_data=json.dumps({"error": str(exc)}))
 
     @database_sync_to_async
@@ -410,14 +466,13 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
         return result
 
     async def user_call_response(self, event):
-
         try:
             await self.send(text_data=json.dumps({
                 "type": "executive_response",
                 "data": event.get("data", {})
             }))
         except Exception as exc:
-            print(f"DEBUG: Error sending user_call_response: {exc}")
+            logger.error("[WS] Error sending user_call_response: %s", exc, exc_info=True)
 
     async def status_update(self, event):
         try:
@@ -426,4 +481,34 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                 "data": event.get("data", [])
             }))
         except Exception as exc:
-            print(f"DEBUG: Error sending status_update to user: {exc}")
+            logger.error("[WS] Error sending status_update to user: %s", exc, exc_info=True)
+
+    async def incoming_call(self, event):
+        """Forward incoming call notification to user (if they are also in a user group)."""
+        try:
+            await self.send(text_data=json.dumps({
+                "type": "incoming_call",
+                **{k: v for k, v in event.items() if k != 'type'},
+            }))
+        except Exception as exc:
+            logger.error("[WS] Error delivering incoming_call to user: %s", exc, exc_info=True)
+
+    async def call_missed(self, event):
+        """Forward call_missed notification to user."""
+        try:
+            await self.send(text_data=json.dumps({
+                "type": "call_missed",
+                "call_id": event.get("call_id"),
+            }))
+        except Exception as exc:
+            logger.error("[WS] Error delivering call_missed to user: %s", exc, exc_info=True)
+
+    async def call_ended(self, event):
+        """Forward call_ended notification to user."""
+        try:
+            await self.send(text_data=json.dumps({
+                "type": "call_ended",
+                **{k: v for k, v in event.items() if k != 'type'},
+            }))
+        except Exception as exc:
+            logger.error("[WS] Error delivering call_ended to user: %s", exc, exc_info=True)

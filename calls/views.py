@@ -1,4 +1,5 @@
 # calls/views.py
+import logging
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -29,6 +30,8 @@ from calls.serializers import CallInitiateSerializer
 from calls.utils import generate_agora_token
 from executives.models import Executive, ExecutiveStats
 from users.models import UserStats
+
+logger = logging.getLogger("calls")
 class IsAuthenticatedOrService(permissions.BasePermission):
  
     def has_permission(self, request, view):
@@ -97,33 +100,40 @@ class CallInitiateView(APIView):
                 amount_per_min=rate_per_minute
             )
 
-            # Send WebSocket notification
+            # Send WebSocket notification — logs internally if it fails
             self.send_incoming_call_notification(executive_id, call_history, user)
 
             fcm_sent = False
             fcm_error = None
-            
+
             if executive.fcm_token:
                 fcm_title = "talkeazy"
                 fcm_body = f"New call from {getattr(user, 'user_id', 'Unknown')}"
                 fcm_data = {
                     "call_id": call_history.id,
                     "caller_name": str(getattr(user, "user_id", "Unknown")),
-                    "type":"incoming_call",
-                    "avatar":"",
-                    "channel_name":str(call_history.channel_name),
-                    "token":str(call_history.executive_token),
-                    "agorauserid":str(call_history.callee_uid)
+                    "type": "incoming_call",
+                    "avatar": "",
+                    "channel_name": str(call_history.channel_name),
+                    "token": str(call_history.executive_token),
+                    "agorauserid": str(call_history.callee_uid)
                 }
+                logger.info("[CALLS] Sending FCM notification to executive_id=%s (token=%s...)",
+                            executive_id, str(executive.fcm_token)[:20])
                 fcm_sent = send_fcm_notification(
-                    executive.fcm_token, 
-                    fcm_title, 
-                    fcm_body, 
+                    executive.fcm_token,
+                    fcm_title,
+                    fcm_body,
                     fcm_data
                 )
-                fcm_error = None
+                if fcm_sent:
+                    logger.info("[CALLS] FCM notification sent successfully for call_id=%s", call_history.id)
+                else:
+                    fcm_error = "FCM send failed — check server logs for exact error"
+                    logger.warning("[CALLS] FCM notification FAILED for call_id=%s", call_history.id)
             else:
-                fcm_error = "No FCM token available"
+                fcm_error = "No FCM token available for executive"
+                logger.warning("[CALLS] No FCM token for executive_id=%s — skipping FCM", executive_id)
 
             # Schedule missed call check (non-Celery)
             threading.Timer(30, self.mark_call_as_missed, args=[call_history.id]).start()
@@ -140,8 +150,8 @@ class CallInitiateView(APIView):
                 "status": "ringing",
                 "coins_per_second": coins_per_second,
                 "amount_per_min": str(rate_per_minute),
-                "fcm_sent": fcm_sent,  # ✓ Added
-                "fcm_error": fcm_error  # ✓ Added (will be None if successful)
+                "fcm_sent": fcm_sent,
+                "fcm_error": fcm_error
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -158,26 +168,61 @@ class CallInitiateView(APIView):
         return None
 
     def send_incoming_call_notification(self, executive_id, call_history, caller):
+        """
+        Send a WebSocket notification to the executive's private channel group.
+
+        IMPORTANT: The group name MUST match the group the ExecutivesConsumer joins.
+        ExecutivesConsumer uses: f"executive_{self.executive_id}" where self.executive_id
+        is the executive's string code (e.g. "EXE001"), NOT the integer DB pk.
+        """
         try:
             channel_layer = get_channel_layer()
-            if channel_layer:
-                async_to_sync(channel_layer.group_send)(
-                    f"executive_{executive_id}",
-                    {
-                        "type": "incoming_call",
-                        "call_id": call_history.id,
-                        "channel_name": call_history.channel_name,
-                        "caller_name": getattr(caller, "name", "Unknown"),
-                        "caller_uid": call_history.uid,
-                        "executive_token": call_history.executive_token,
-                        "callee_uid": call_history.callee_uid,
-                        "timestamp": call_history.start_time.isoformat(),
-                        "coins_per_second": call_history.coins_per_second,
-                        "amount_per_min": str(call_history.amount_per_min),
-                    }
-                )
-        except Exception as e:
-            print(f"WebSocket notification failed: {e}")
+            if not channel_layer:
+                logger.error("[CALLS] channel_layer is None — CHANNEL_LAYERS is not configured correctly!")
+                return
+
+            # ✅ FIX (Bug 3): Use executive.executive_id (string code) not integer executive_id
+            # so the group name matches what ExecutivesConsumer joins on connect.
+            executive = get_object_or_404(Executive, id=executive_id)
+            group_name = f"executive_{executive.executive_id}"
+
+            # ✅ FIX (Bug 4): Guard against start_time being None
+            timestamp = (
+                call_history.start_time.isoformat()
+                if call_history.start_time
+                else timezone.now().isoformat()
+            )
+
+            payload = {
+                "type": "incoming_call",
+                "call_id": call_history.id,
+                "channel_name": call_history.channel_name,
+                "caller_name": getattr(caller, "name", "Unknown"),
+                "caller_uid": call_history.uid,
+                "executive_token": call_history.executive_token,
+                "callee_uid": call_history.callee_uid,
+                "timestamp": timestamp,
+                "coins_per_second": call_history.coins_per_second,
+                "amount_per_min": str(call_history.amount_per_min),
+            }
+
+            logger.info(
+                "[CALLS] Sending incoming_call WebSocket notification → group=%s | call_id=%s",
+                group_name, call_history.id
+            )
+
+            async_to_sync(channel_layer.group_send)(group_name, payload)
+
+            logger.info(
+                "[CALLS] incoming_call WebSocket notification delivered successfully → group=%s",
+                group_name
+            )
+
+        except Exception as exc:
+            logger.error(
+                "[CALLS] WebSocket notification FAILED for call_id=%s: %s",
+                call_history.id, exc, exc_info=True
+            )
 
     @staticmethod
     def mark_call_as_missed(call_id):
@@ -191,19 +236,32 @@ class CallInitiateView(APIView):
             call.executive.on_call = False
             call.executive.save(update_fields=["on_call"])
 
-            # WebSocket notifications
+            # ✅ FIX: Use executive.executive_id (string code) to match ExecutivesConsumer group name
+            exec_group = f"executive_{call.executive.executive_id}"
+            user_group = f"user_{call.user.id}"
+
             channel_layer = get_channel_layer()
             if channel_layer:
-                async_to_sync(channel_layer.group_send)(
-                    f"executive_{call.executive.id}",
-                    {"type": "call_missed", "call_id": call_id}
-                )
-                async_to_sync(channel_layer.group_send)(
-                    f"user_{call.user.id}",
-                    {"type": "call_missed", "call_id": call_id}
-                )
+                try:
+                    async_to_sync(channel_layer.group_send)(
+                        exec_group,
+                        {"type": "call_missed", "call_id": call_id}
+                    )
+                    async_to_sync(channel_layer.group_send)(
+                        user_group,
+                        {"type": "call_missed", "call_id": call_id}
+                    )
+                    logger.info("[CALLS] call_missed sent to exec_group=%s and user_group=%s",
+                                exec_group, user_group)
+                except Exception as exc:
+                    logger.error("[CALLS] Failed to send call_missed WS notification: %s", exc, exc_info=True)
+            else:
+                logger.error("[CALLS] channel_layer is None — cannot send call_missed notification")
+
         except AgoraCallHistory.DoesNotExist:
             pass
+        except Exception as exc:
+            logger.error("[CALLS] Error in mark_call_as_missed for call_id=%s: %s", call_id, exc, exc_info=True)
 
 
 class MarkJoinedView(APIView):
@@ -564,8 +622,8 @@ class UserEndCallView(APIView):
                             'duration_seconds': call.duration_seconds
                         }
                     )
-        except Exception as e:
-            print(f"WebSocket notification failed: {e}")
+        except Exception as exc:
+            logger.error("[CALLS] UserEndCallView.notify_end_call failed: %s", exc, exc_info=True)
 
 
 
@@ -610,8 +668,8 @@ class ExecutiveEndCallView(APIView):
                             'duration_seconds': call.duration_seconds
                         }
                     )
-        except Exception as e:
-            print(f"WebSocket notification failed: {e}")
+        except Exception as exc:
+            logger.error("[CALLS] ExecutiveEndCallView.notify_end_call failed: %s", exc, exc_info=True)
 
 
 class AdminExecutiveCallHistoryAPIView(APIView):
