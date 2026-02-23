@@ -138,6 +138,11 @@ class CallInitiateView(APIView):
             # Schedule missed call check (non-Celery)
             threading.Timer(30, self.mark_call_as_missed, args=[call_history.id]).start()
 
+            # Calculate maximum talk time in seconds
+            max_talk_time_seconds = 0
+            if coins_per_second > 0:
+                max_talk_time_seconds = int(user_stats.coin_balance // coins_per_second)
+
             return Response({
                 "id": call_history.id,
                 "executive_id": executive_id,
@@ -151,7 +156,8 @@ class CallInitiateView(APIView):
                 "coins_per_second": coins_per_second,
                 "amount_per_min": str(rate_per_minute),
                 "fcm_sent": fcm_sent,
-                "fcm_error": fcm_error
+                "fcm_error": fcm_error,
+                "max_talk_time_seconds": max_talk_time_seconds
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

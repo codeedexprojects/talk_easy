@@ -47,7 +47,7 @@ class RegisterOrLoginView(APIView):
                 }, status=status.HTTP_403_FORBIDDEN)
 
             # ✅ Test login shortcut (bypass SMS OTP)
-            if mobile_number == "+918086851333":
+            if mobile_number == "918086851333":
                 otp = "123456"
                 user.otp = otp
                 user.save(update_fields=['otp'])
@@ -104,7 +104,7 @@ class RegisterOrLoginView(APIView):
             initial_coin_balance = 0 if is_deleted_user else 1000
 
             # ✅ Test registration shortcut
-            if mobile_number == "+918086851333":
+            if mobile_number == "918086851333":
                 otp = "123456"
             else:
                 # Send OTP
@@ -174,7 +174,7 @@ class VerifyOTPView(APIView):
         
         try:
             # ✅ Test verification shortcut
-            if mobile_number == "+918086851333" and otp == "123456":
+            if mobile_number == "918086851333" and otp == "123456":
                 user = UserProfile.objects.get(mobile_number=mobile_number)
             else:
                 user = UserProfile.objects.get(mobile_number=mobile_number, otp=otp)

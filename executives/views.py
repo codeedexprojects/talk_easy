@@ -116,7 +116,7 @@ class ExecutiveLoginView(APIView):
             )
 
         # Test login shortcut (bypass password check)
-        if mobile_number == "+918086851333":
+        if mobile_number == "918086851333":
             otp = "123456"  # fixed OTP for testing
             executive, created = Executive.objects.get_or_create(
                 mobile_number=mobile_number,
@@ -184,7 +184,7 @@ class ExecutiveVerifyOTPView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        if mobile_number == "+918086851333" and otp == "123456":
+        if mobile_number == "918086851333" and otp == "123456":
             ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
                 revoked=True, revoked_at=timezone.now()
             )
@@ -311,6 +311,9 @@ class ExecutiveUpdateByIDAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, id):
+        if request.user.id != id:
+            return Response({"detail": "Not authorized to access this profile."}, status=status.HTTP_403_FORBIDDEN)
+
         try:
             executive = Executive.objects.get(id=id)
         except Executive.DoesNotExist:
@@ -361,6 +364,9 @@ class ExecutiveUpdateByIDAPIView(APIView):
         return self.update_executive(request, id, partial=True)
 
     def update_executive(self, request, id, partial=False):
+        if request.user.id != id:
+            return Response({"detail": "Not authorized to update this profile."}, status=status.HTTP_403_FORBIDDEN)
+
         try:
             executive = Executive.objects.get(id=id)
         except Executive.DoesNotExist:
@@ -396,6 +402,19 @@ class AdminUpdateExecutiveAPIView(APIView):
 
     def patch(self, request, id):
         return self.update_executive(request, id, partial=True)
+
+    def delete(self, request, id):
+        user = request.user
+        if not getattr(user, 'is_staff', False) and not getattr(user, 'is_superuser', False):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        executive.delete()
+        return Response({"detail": "Executive deleted successfully.", "status": True}, status=status.HTTP_200_OK)
 
     def update_executive(self, request, id, partial=False):
         user = request.user
