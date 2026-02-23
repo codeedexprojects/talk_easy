@@ -81,12 +81,8 @@ class UserRecharge(models.Model):
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
-        if self.is_successful and self.payment_status == "successful":
-            if hasattr(self.user, "stats"):
-                self.user.stats.coin_balance += self.coins_added
-                self.user.stats.save(update_fields=["coin_balance"])
-
     def mark_as_successful(self, payment_id=None, signature=None):
+        from django.db import transaction
         self.razorpay_payment_id = payment_id
         self.razorpay_signature = signature
         self.payment_status = "successful"
@@ -98,6 +94,13 @@ class UserRecharge(models.Model):
             "is_successful",
             "updated_at"
         ])
+
+        # Atomically update the user coin balance
+        if hasattr(self.user, "stats"):
+            with transaction.atomic():
+                stats = type(self.user.stats).objects.select_for_update().get(pk=self.user.stats.pk)
+                stats.coin_balance += self.coins_added
+                stats.save(update_fields=["coin_balance"])
 
     def mark_as_failed(self):
         self.payment_status = "failed"

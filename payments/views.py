@@ -481,6 +481,9 @@ class UserRechargeHistoryView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
+from rest_framework import status
+from django.db import transaction
+
 class AdminRechargeView(APIView):
     permission_classes = []
     authentication_classes = []
@@ -520,28 +523,45 @@ class AdminRechargeView(APIView):
         except ValueError:
             return Response({"error": "Invalid coins_added or amount_paid value."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create the recharge
-        recharge = UserRecharge.objects.create(
-            user=user,
-            plan=plan,
-            coins_added=coins_to_add,
-            amount_paid=amount_paid,
-            is_successful=True,
-            by_admin=True,
-            payment_status="successful",
-        )
+        # Use a transaction to safely update stats using select_for_update
+        try:
+            with transaction.atomic():
+                # Lock the stats row
+                stats = None
+                if hasattr(user, "stats"):
+                    stats = type(user.stats).objects.select_for_update().get(pk=user.stats.pk)
 
-        # Update user coin balance
-        if hasattr(user, "stats"):
-            user.stats.coin_balance += coins_to_add
-            user.stats.save(update_fields=["coin_balance"])
+                # Create the recharge
+                recharge = UserRecharge.objects.create(
+                    user=user,
+                    plan=plan,
+                    coins_added=coins_to_add,
+                    amount_paid=amount_paid,
+                    is_successful=True,
+                    by_admin=True,
+                    payment_status="successful",
+                )
 
-        return Response({
-            "message": f"Recharge successful for user {user.name or user.user_id}",
-            "coins_added": coins_to_add,
-            "amount_paid": amount_paid,
-            "current_coin_balance": user.stats.coin_balance,
-        }, status=status.HTTP_200_OK)
+                # Update user coin balance specifically
+                if stats:
+                    import logging
+                    logger = logging.getLogger("payments")
+                    old_balance = stats.coin_balance
+                    stats.coin_balance += coins_to_add
+                    stats.save(update_fields=["coin_balance"])
+                    logger.info(f"Admin Recharge: User {user.id} balance changed from {old_balance} to {stats.coin_balance} by adding {coins_to_add}")
+
+            return Response({
+                "message": f"Recharge successful for user {user.name or user.user_id}",
+                "coins_added": coins_to_add,
+                "amount_paid": amount_paid,
+                "current_coin_balance": stats.coin_balance if stats else 0,
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger("payments")
+            logger.error(f"Error during admin recharge for user {user.id}: {str(e)}")
+            return Response({"error": "Failed to process recharge securely."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 from django.utils import timezone
 from django.db.models import Sum
