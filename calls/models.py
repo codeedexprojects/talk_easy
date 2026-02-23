@@ -114,7 +114,7 @@ class AgoraCallHistory(models.Model):
             if getattr(self.executive, "is_online", False):
                 exec_stats.total_on_duty_seconds += duration_seconds
 
-            amount_per_second = (Decimal(str(self.amount_per_min)) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            amount_per_second = Decimal(str(self.amount_per_min)) / Decimal("60")
             earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
             self.executive_earnings = earnings
 
