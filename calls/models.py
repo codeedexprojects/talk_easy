@@ -77,14 +77,30 @@ class AgoraCallHistory(models.Model):
         return (ended_at - base_start) if ended_at and base_start else timezone.timedelta()
 
     def end_call(self, ender="client", request_id=None):
-        if self.status == "ended" or not self.is_active:
+        if self.status in ["ended", "missed", "cancelled", "rejected"] or not self.is_active:
             return  
 
         now_time = timezone.now()
         self.end_time = now_time
 
-        base_start = self.joined_at or self.start_time
-        self.duration = (now_time - base_start) if base_start else timedelta()
+        if not self.joined_at:
+            self.status = "cancelled" if ender in ["user", "client"] else "missed"
+            self.duration = timedelta()
+            self.duration_seconds = 0
+            self.is_active = False
+            self.ended_by = ender
+            if request_id:
+                self.end_request_id = request_id
+            
+            if hasattr(self.executive, "on_call"):
+                self.executive.on_call = False
+                self.executive.save(update_fields=["on_call"])
+                
+            self.save(update_fields=["end_time", "duration", "duration_seconds", "status", "is_active", "ended_by", "end_request_id"])
+            return
+
+        base_start = self.joined_at
+        self.duration = (now_time - base_start)
         duration_seconds = int(self.duration.total_seconds())
         self.duration_seconds = duration_seconds
 

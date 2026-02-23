@@ -78,14 +78,39 @@ class CallHistorySerializer(serializers.ModelSerializer):
     user_id = serializers.CharField(source="user.user_id", read_only=True)
     executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
     is_blocked = serializers.SerializerMethodField()
+    start_time = serializers.SerializerMethodField()
+    end_time = serializers.SerializerMethodField()
+    duration = serializers.SerializerMethodField()
+    calling_time = serializers.SerializerMethodField()
 
     class Meta:
         model = AgoraCallHistory
         fields = [
             "id", "channel_name", "status", "start_time", "end_time","token","executive_token",
+            "duration", "calling_time",
             "duration_seconds", "coins_deducted", "executive_earnings","callee_uid",
             "user_name", "executive_name","user","user_id","executive","executive_id","is_blocked"
         ]
+
+    def get_start_time(self, obj):
+        if obj.start_time:
+            kolkata = pytz.timezone("Asia/Kolkata")
+            return localtime(obj.start_time, kolkata).strftime("%I:%M %p %d-%m-%Y")
+        return None
+
+    def get_end_time(self, obj):
+        if obj.end_time:
+            kolkata = pytz.timezone("Asia/Kolkata")
+            return localtime(obj.end_time, kolkata).strftime("%I:%M %p %d-%m-%Y")
+        return None
+
+    def get_duration(self, obj):
+        mins, secs = divmod(obj.duration_seconds or 0, 60)
+        return f"{mins:02d}:{secs:02d}"
+
+    def get_calling_time(self, obj):
+        mins, secs = divmod(obj.duration_seconds or 0, 60)
+        return f"{mins:02d}:{secs:02d}"
 
     def get_is_blocked(self, obj):
         from executives.models import BlockedusersByExecutive  
