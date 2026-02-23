@@ -28,8 +28,7 @@ class Admin(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = [
         ('hr_user', 'HR - User'),
         ('hr_executive', 'HR - Executive'),
-        ('manager_user', 'Manager - User'),
-        ('manager_executive', 'Manager - Executive'),
+        ('manager', 'Manager'),
         ('superuser', 'Superuser'),
         ('other', 'Other')
     ]
@@ -47,6 +46,23 @@ class Admin(AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['name']
+
+    @property
+    def is_manager(self):
+        """True if this admin has the unified 'manager' role."""
+        return self.role == 'manager'
+
+    @property
+    def is_manager_executive(self):
+        """True if manager with executive-level permissions (set in custom_permissions)."""
+        return self.is_manager and isinstance(self.custom_permissions, dict) and \
+               self.custom_permissions.get('manager_level') == 'executive'
+
+    @property
+    def is_manager_user(self):
+        """True if manager with user-level permissions (set in custom_permissions)."""
+        return self.is_manager and isinstance(self.custom_permissions, dict) and \
+               self.custom_permissions.get('manager_level') == 'user'
 
     def __str__(self):
         return f"{self.name} ({self.email})"

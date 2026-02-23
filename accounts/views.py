@@ -28,6 +28,9 @@ from .serializers import (
     AdminProfileSerializer,
     AdminUpdateSerializer,
     AdminPermissionUpdateSerializer,
+    ManagerCreateSerializer,
+    ManagerLoginSerializer,
+    # Backward-compat aliases (kept for existing integrations)
     ManagerExecutiveCreateSerializer,
     ManagerExecutiveLoginSerializer,
     ManagerUserCreateSerializer,
@@ -423,7 +426,49 @@ class RevokeAllOtherSessionsView(APIView):
 # Manager Management
 # ─────────────────────────────────────────────
 
+class ManagerCreateView(APIView):
+    """
+    POST /accounts/managers/create/
+    Unified endpoint for creating any manager (executive or user level).
+    Body: { name, email, mobile_number, password, manager_level: 'executive'|'user' }
+    """
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def post(self, request):
+        if not request.user.is_superuser:
+            return Response({"error": "You do not have permission to create a manager."}, status=status.HTTP_403_FORBIDDEN)
+        serializer = ManagerCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            manager = serializer.save()
+            perms = manager.custom_permissions if isinstance(manager.custom_permissions, dict) else {}
+            return Response({
+                "message": "Manager created successfully",
+                "data": {
+                    "id": manager.id, "name": manager.name, "email": manager.email,
+                    "role": manager.role, "manager_level": perms.get('manager_level', 'user'),
+                }
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ManagerLoginView(APIView):
+    """
+    POST /accounts/managers/login/
+    Unified login for any manager.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = ManagerLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            return Response({"message": "Login successful", "data": serializer.validated_data}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class ManagerExecutiveCreateView(APIView):
+    """[DEPRECATED] Use ManagerCreateView with manager_level='executive'."""
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
 
@@ -432,12 +477,19 @@ class ManagerExecutiveCreateView(APIView):
             return Response({"error": "You do not have permission to create this role."}, status=status.HTTP_403_FORBIDDEN)
         serializer = ManagerExecutiveCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response({"message": "Manager Executive created successfully", "data": serializer.data}, status=status.HTTP_201_CREATED)
+            manager = serializer.save()
+            return Response({"message": "Manager (Executive level) created successfully", "data": {
+                "id": manager.id, "name": manager.name, "email": manager.email,
+                "role": manager.role, "manager_level": "executive",
+            }}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ManagerExecutiveLoginView(APIView):
+    """[DEPRECATED] Use ManagerLoginView."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
     def post(self, request):
         serializer = ManagerExecutiveLoginSerializer(data=request.data)
         if serializer.is_valid():
@@ -446,18 +498,21 @@ class ManagerExecutiveLoginView(APIView):
 
 
 class ManagerExecutiveDeleteView(APIView):
+    """[DEPRECATED] Use ManagerDeleteView. Deletes any manager with executive level."""
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
 
     def delete(self, request, pk):
         if not (request.user.is_superuser or getattr(request.user, "role", "") == "admin"):
-            return Response({"error": "You do not have permission to delete a manager executive."}, status=status.HTTP_403_FORBIDDEN)
-        manager_exec = get_object_or_404(Admin, id=pk, role="manager_executive")
+            return Response({"error": "You do not have permission to delete a manager."}, status=status.HTTP_403_FORBIDDEN)
+        # After migration, all managers have role='manager'
+        manager_exec = get_object_or_404(Admin, id=pk, role="manager")
         manager_exec.delete()
-        return Response({"message": "Manager executive deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+        return Response({"message": "Manager (executive) deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
 
 
 class ManagerUserCreateView(APIView):
+    """[DEPRECATED] Use ManagerCreateView with manager_level='user'."""
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
 
@@ -466,12 +521,20 @@ class ManagerUserCreateView(APIView):
             return Response({"error": "You do not have permission to create this role."}, status=status.HTTP_403_FORBIDDEN)
         serializer = ManagerUserCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response({"message": "Manager User created successfully", "data": serializer.data}, status=status.HTTP_201_CREATED)
+            manager = serializer.save()
+            return Response({"message": "Manager (User level) created successfully", "data": {
+                "id": manager.id, "name": manager.name, "email": manager.email,
+                "role": manager.role,
+                "manager_level": "user",
+            }}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ManagerUserLoginView(APIView):
+    """[DEPRECATED] Use ManagerLoginView."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
     def post(self, request):
         serializer = ManagerUserLoginSerializer(data=request.data)
         if serializer.is_valid():
@@ -480,15 +543,17 @@ class ManagerUserLoginView(APIView):
 
 
 class ManagerUserDeleteView(APIView):
+    """[DEPRECATED] Use ManagerDeleteView. Deletes any manager with user level."""
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
 
     def delete(self, request, pk):
         if not (request.user.is_superuser or getattr(request.user, "role", "") == "admin"):
             return Response({"error": "You do not have permission to delete a manager user."}, status=status.HTTP_403_FORBIDDEN)
-        manager_user = get_object_or_404(Admin, id=pk, role="manager_user")
+        # After migration, all managers have role='manager'
+        manager_user = get_object_or_404(Admin, id=pk, role="manager")
         manager_user.delete()
-        return Response({"message": "Manager user deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+        return Response({"message": "Manager (user) deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
 
 
 class UpdateAdminPermissionsView(APIView):

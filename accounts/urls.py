@@ -26,13 +26,23 @@ urlpatterns = [
     path('sessions/revoke-all-others/', RevokeAllOtherSessionsView.as_view(), name='revoke-all-other-sessions'),
 
     # ── Manager Management ──────────────────────────────────────────────────────
+    # New unified endpoints (preferred)
+    path('managers/create/', ManagerCreateView.as_view(), name='manager-create'),
+    path('managers/login/', ManagerLoginView.as_view(), name='manager-login'),
+
+    # Legacy endpoints (kept for backward compatibility)
     path('create-manager/', ManagerExecutiveCreateView.as_view(), name='create-manager-executive'),
     path('login-manager/', ManagerExecutiveLoginView.as_view(), name='login-manager-executive'),
-    path('admin/<int:pk>/permissions/', UpdateAdminPermissionsView.as_view(), name='update-admin-permissions'),
     path('manager-executives/<int:pk>/delete/', ManagerExecutiveDeleteView.as_view(), name='delete-manager-executive'),
     path('create-manager-user/', ManagerUserCreateView.as_view(), name='create-manager-user'),
     path('login-manager-user/', ManagerUserLoginView.as_view(), name='login-manager-user'),
     path('manager-users/<int:pk>/delete/', ManagerUserDeleteView.as_view(), name='delete-manager-user'),
+
+    # Permissions update — new clean path + legacy path preserved
+    path('permissions/<int:pk>/update/', UpdateAdminPermissionsView.as_view(), name='update-admin-permissions'),
+    path('admin/<int:pk>/permissions/', UpdateAdminPermissionsView.as_view(), name='update-admin-permissions-legacy'),
+
+    # Manager list and detail
     path('managers/', ManagerListView.as_view(), name='manager-list'),
     path('managers/<int:pk>/', ManagerDetailView.as_view(), name='manager-detail'),
 

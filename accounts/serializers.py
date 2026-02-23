@@ -81,29 +81,44 @@ class AdminProfileSerializer(serializers.ModelSerializer):
 
 
 # ─────────────────────────────────────────────
-# Manager Serializers
+# Manager Serializers (Unified)
 # ─────────────────────────────────────────────
 
-class ManagerExecutiveCreateSerializer(serializers.ModelSerializer):
+class ManagerCreateSerializer(serializers.ModelSerializer):
+    """
+    Creates a unified 'manager' role admin.
+    Accepts optional `manager_level` ('executive' | 'user', defaults to 'user')
+    which is stored in custom_permissions.
+    """
+    manager_level = serializers.ChoiceField(
+        choices=['executive', 'user'],
+        default='user',
+        write_only=True,
+        required=False,
+    )
+
     class Meta:
         model = Admin
-        fields = ['id', 'name', 'email', 'mobile_number', 'role', 'password']
+        fields = ['id', 'name', 'email', 'mobile_number', 'role', 'password', 'manager_level']
         extra_kwargs = {
             'password': {'write_only': True},
             'role': {'read_only': True},
         }
 
     def create(self, validated_data):
-        validated_data['role'] = 'manager_executive'
+        manager_level = validated_data.pop('manager_level', 'user')
         password = validated_data.pop('password', None)
-        admin = Admin.objects.create(**validated_data)
+        validated_data['role'] = 'manager'
+        validated_data['custom_permissions'] = {'manager_level': manager_level}
+        admin = Admin(**validated_data)
         if password:
             admin.set_password(password)
         admin.save()
         return admin
 
 
-class ManagerExecutiveLoginSerializer(serializers.Serializer):
+class ManagerLoginSerializer(serializers.Serializer):
+    """Authenticates any manager regardless of level."""
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
@@ -113,55 +128,50 @@ class ManagerExecutiveLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid credentials provided.")
         if not user.is_active:
             raise serializers.ValidationError("This account is inactive.")
-        if user.role != 'manager_executive':
-            raise serializers.ValidationError("You are not authorized as a Manager Executive.")
+        if user.role != 'manager':
+            raise serializers.ValidationError("You are not authorized as a Manager.")
+        if getattr(user, 'is_banned', False):
+            raise serializers.ValidationError("Your account has been banned.")
         refresh = RefreshToken.for_user(user)
+        perms = user.custom_permissions if isinstance(user.custom_permissions, dict) else {}
         return {
-            'id': user.id, 'name': user.name, 'email': user.email,
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
             'role': user.role,
+            'manager_level': perms.get('manager_level', 'user'),
             'access_token': str(refresh.access_token),
             'refresh_token': str(refresh),
         }
 
 
-class ManagerUserCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Admin
-        fields = ['id', 'name', 'email', 'mobile_number', 'role', 'password']
-        extra_kwargs = {
-            'password': {'write_only': True},
-            'role': {'read_only': True},
-        }
+# ── Backward-compatibility aliases ──────────────────────────────────────────
+# Existing imports from other modules won't break immediately.
+# Deprecated: use ManagerCreateSerializer and ManagerLoginSerializer instead.
 
+class ManagerExecutiveCreateSerializer(ManagerCreateSerializer):
+    """[DEPRECATED] Use ManagerCreateSerializer(manager_level='executive')."""
     def create(self, validated_data):
-        validated_data['role'] = 'manager_user'
-        password = validated_data.pop('password', None)
-        admin = Admin.objects.create(**validated_data)
-        if password:
-            admin.set_password(password)
-        admin.save()
-        return admin
+        # Force executive level — direct assignment overrides the base default='user'
+        validated_data['manager_level'] = 'executive'
+        return super().create(validated_data)
 
 
-class ManagerUserLoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+class ManagerUserCreateSerializer(ManagerCreateSerializer):
+    """[DEPRECATED] Use ManagerCreateSerializer(manager_level='user')."""
+    def create(self, validated_data):
+        validated_data['manager_level'] = 'user'
+        return super().create(validated_data)
 
-    def validate(self, data):
-        user = authenticate(email=data['email'], password=data['password'])
-        if user is None:
-            raise serializers.ValidationError("Invalid credentials provided.")
-        if not user.is_active:
-            raise serializers.ValidationError("This account is inactive.")
-        if user.role != 'manager_user':
-            raise serializers.ValidationError("You are not authorized as a Manager User.")
-        refresh = RefreshToken.for_user(user)
-        return {
-            'id': user.id, 'name': user.name, 'email': user.email,
-            'role': user.role,
-            'access_token': str(refresh.access_token),
-            'refresh_token': str(refresh),
-        }
+
+class ManagerExecutiveLoginSerializer(ManagerLoginSerializer):
+    """[DEPRECATED] Use ManagerLoginSerializer."""
+    pass
+
+
+class ManagerUserLoginSerializer(ManagerLoginSerializer):
+    """[DEPRECATED] Use ManagerLoginSerializer."""
+    pass
 
 
 class AdminPermissionUpdateSerializer(serializers.ModelSerializer):
