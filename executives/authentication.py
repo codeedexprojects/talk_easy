@@ -24,12 +24,13 @@ class ExecutiveTokenAuthentication(BaseAuthentication):
 
 
 from rest_framework.views import exception_handler
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated
 
 def custom_exception_handler(exc, context):
     response = exception_handler(exc, context)
 
-    if response is not None and isinstance(exc, AuthenticationFailed):
-        response.data = {"message": str(exc.detail)}
+    if response is not None and isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
+        response.status_code = 403
+        response.data = {"message": "Token revoked"}
 
     return response

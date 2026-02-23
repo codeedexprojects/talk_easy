@@ -74,10 +74,10 @@
             ]
         },
         {
-            "name": "Manager User",
+            "name": "Managers",
             "item": [
                 {
-                    "name": "Create Manager User",
+                    "name": "Create Manager",
                     "event": [
                         {
                             "listen": "test",
@@ -86,7 +86,7 @@
                                     "if (pm.response.code === 201) {",
                                     "    const json = pm.response.json();",
                                     "    pm.collectionVariables.set('manager_id', json.data.id);",
-                                    "    console.log('Manager User ID saved:', json.data.id);",
+                                    "    console.log('Manager ID saved:', json.data.id);",
                                     "}"
                                 ],
                                 "type": "text/javascript"
@@ -107,40 +107,26 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"name\": \"Manager User 1\",\n  \"email\": \"manageruser1@test.com\",\n  \"password\": \"managerpass\",\n  \"mobile_number\": \"1231231234\"\n}"
+                            "raw": "{\n  \"name\": \"Manager Example\",\n  \"email\": \"manager_example@test.com\",\n  \"password\": \"managerpass123\",\n  \"mobile_number\": \"1231231234\",\n  \"manager_level\": \"executive\"\n}"
                         },
                         "url": {
-                            "raw": "{{base_url}}/accounts/create-manager-user/",
+                            "raw": "{{base_url}}/accounts/managers/create/",
                             "host": [
                                 "{{base_url}}"
                             ],
                             "path": [
                                 "accounts",
-                                "create-manager-user",
+                                "managers",
+                                "create",
                                 ""
                             ]
                         },
-                        "description": "Create a new Manager User (role: manager_user). Requires superadmin JWT.\n\n**Response 201**: Returns `{ message, data: { id, name, email, mobile_number, role } }`"
+                        "description": "Create a new Manager. Requires superadmin JWT.\n- `manager_level` can be `\"executive\"` or `\"user\"`.\n\n**Response 201**: Returns `{ message, data: { id, name, email, mobile_number, role, manager_level } }`"
                     },
-                    "response": [
-                        {
-                            "name": "201 Created",
-                            "originalRequest": {
-                                "method": "POST",
-                                "body": {
-                                    "mode": "raw",
-                                    "raw": "{\n  \"name\": \"Manager User 1\",\n  \"email\": \"manageruser1@test.com\",\n  \"password\": \"managerpass\",\n  \"mobile_number\": \"1231231234\"\n}"
-                                }
-                            },
-                            "status": "Created",
-                            "code": 201,
-                            "_postman_previewlanguage": "json",
-                            "body": "{\n  \"message\": \"Manager User created successfully\",\n  \"data\": {\n    \"id\": 5,\n    \"name\": \"Manager User 1\",\n    \"email\": \"manageruser1@test.com\",\n    \"mobile_number\": \"1231231234\",\n    \"role\": \"manager_user\"\n  }\n}"
-                        }
-                    ]
+                    "response": []
                 },
                 {
-                    "name": "Login Manager User",
+                    "name": "Login Manager",
                     "request": {
                         "method": "POST",
                         "header": [
@@ -151,164 +137,24 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"email\": \"manageruser1@test.com\",\n  \"password\": \"managerpass\"\n}"
+                            "raw": "{\n  \"email\": \"manager_example@test.com\",\n  \"password\": \"managerpass123\"\n}"
                         },
                         "url": {
-                            "raw": "{{base_url}}/accounts/login-manager-user/",
+                            "raw": "{{base_url}}/accounts/managers/login/",
                             "host": [
                                 "{{base_url}}"
                             ],
                             "path": [
                                 "accounts",
-                                "login-manager-user",
+                                "managers",
+                                "login",
                                 ""
                             ]
                         },
-                        "description": "Login as a Manager User. Returns JWT access and refresh tokens.\n\n**Response 200**: `{ message, data: { id, name, email, role, access_token, refresh_token } }`"
+                        "description": "Login as a Manager. Returns JWT access and refresh tokens.\n\n**Response 200**: `{ message, data: { id, name, email, role, manager_level, access_token, refresh_token } }`"
                     },
                     "response": []
                 },
-                {
-                    "name": "Delete Manager User",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{admin_token}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{base_url}}/accounts/manager-users/{{manager_id}}/delete/",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "accounts",
-                                "manager-users",
-                                "{{manager_id}}",
-                                "delete",
-                                ""
-                            ]
-                        },
-                        "description": "Delete a Manager User by ID. Requires superadmin JWT.\n\n**Response 204**: No Content"
-                    },
-                    "response": []
-                }
-            ]
-        },
-        {
-            "name": "Manager Executive",
-            "item": [
-                {
-                    "name": "Create Manager Executive",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const json = pm.response.json();",
-                                    "    pm.collectionVariables.set('manager_id', json.data.id);",
-                                    "    console.log('Manager Executive ID saved:', json.data.id);",
-                                    "}"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{admin_token}}"
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"name\": \"Manager Executive 1\",\n  \"email\": \"managerexec1@test.com\",\n  \"password\": \"execpass123\",\n  \"mobile_number\": \"9879879870\"\n}"
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/accounts/create-manager/",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "accounts",
-                                "create-manager",
-                                ""
-                            ]
-                        },
-                        "description": "Create a new Manager Executive (role: manager_executive). Requires superadmin JWT.\n\n**Response 201**: `{ message, data: { id, name, email, mobile_number, role } }`"
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Login Manager Executive",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"email\": \"managerexec1@test.com\",\n  \"password\": \"execpass123\"\n}"
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/accounts/login-manager/",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "accounts",
-                                "login-manager",
-                                ""
-                            ]
-                        },
-                        "description": "Login as a Manager Executive. Returns JWT access and refresh tokens.\n\n**Response 200**: `{ message, data: { id, name, email, role, access_token, refresh_token } }`"
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Delete Manager Executive",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{admin_token}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{base_url}}/accounts/manager-executives/{{manager_id}}/delete/",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "accounts",
-                                "manager-executives",
-                                "{{manager_id}}",
-                                "delete",
-                                ""
-                            ]
-                        },
-                        "description": "Delete a Manager Executive by ID. Requires superadmin JWT.\n\n**Response 204**: No Content"
-                    },
-                    "response": []
-                }
-            ]
-        },
-        {
-            "name": "Manager List & Permissions",
-            "item": [
                 {
                     "name": "List All Managers",
                     "request": {
@@ -320,7 +166,7 @@
                             }
                         ],
                         "url": {
-                            "raw": "{{base_url}}/accounts/managers/?role=manager_user",
+                            "raw": "{{base_url}}/accounts/managers/?manager_level=executive",
                             "host": [
                                 "{{base_url}}"
                             ],
@@ -331,23 +177,41 @@
                             ],
                             "query": [
                                 {
-                                    "key": "role",
-                                    "value": "manager_user",
-                                    "description": "Optional. Filter by role: `manager_user` or `manager_executive`. Leave empty for all managers."
+                                    "key": "manager_level",
+                                    "value": "executive",
+                                    "description": "Optional. Filter by level: `user` or `executive`. Leave empty for all managers."
                                 }
                             ]
                         },
-                        "description": "List all managers (both manager_user and manager_executive roles). Filter by `?role=manager_user` or `?role=manager_executive`.\n\n**Response 200**: Array of `{ id, name, email, mobile_number, role, is_active, is_banned, created_at }`"
+                        "description": "List all managers. Filter by `?manager_level=user` or `?manager_level=executive`.\n\n**Response 200**: Array of `{ id, name, email, mobile_number, role, custom_permissions, is_active, is_banned, created_at }`"
                     },
-                    "response": [
-                        {
-                            "name": "200 OK – All Managers",
-                            "status": "OK",
-                            "code": 200,
-                            "_postman_previewlanguage": "json",
-                            "body": "[\n  {\n    \"id\": 3,\n    \"name\": \"Manager User 1\",\n    \"email\": \"manageruser1@test.com\",\n    \"mobile_number\": \"1231231234\",\n    \"role\": \"manager_user\",\n    \"custom_permissions\": [],\n    \"is_banned\": false,\n    \"is_active\": true,\n    \"created_at\": \"2026-02-21T07:00:00Z\"\n  }\n]"
-                        }
-                    ]
+                    "response": []
+                },
+                {
+                    "name": "Get Manager Detail",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/accounts/managers/{{manager_id}}/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "accounts",
+                                "managers",
+                                "{{manager_id}}",
+                                ""
+                            ]
+                        },
+                        "description": "Get details of a specific Manager by ID. Requires superadmin JWT.\n\n**Response 200**: `{ message, data: { ... } }`"
+                    },
+                    "response": []
                 },
                 {
                     "name": "Update Manager Permissions",
@@ -365,27 +229,27 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"custom_permissions\": [\"view_users\", \"edit_executives\"]\n}"
+                            "raw": "{\n  \"custom_permissions\": {\"manager_level\": \"executive\", \"can_view_reports\": true}\n}"
                         },
                         "url": {
-                            "raw": "{{base_url}}/accounts/admin/{{manager_id}}/permissions/",
+                            "raw": "{{base_url}}/accounts/permissions/{{manager_id}}/update/",
                             "host": [
                                 "{{base_url}}"
                             ],
                             "path": [
                                 "accounts",
-                                "admin",
-                                "{{manager_id}}",
                                 "permissions",
+                                "{{manager_id}}",
+                                "update",
                                 ""
                             ]
                         },
-                        "description": "Update the `custom_permissions` list for any admin/manager. Requires superadmin JWT.\n\n**Response 200**: `{ message, data: { id, name, email, role, custom_permissions } }`"
+                        "description": "Update the `custom_permissions` JSON for any admin/manager. Requires superadmin JWT.\n\n**Response 200**: `{ message, data: { id, name, email, role, custom_permissions } }`"
                     },
                     "response": []
                 },
                 {
-                    "name": "Update Manager Profile (Self or By ID)",
+                    "name": "Update Manager Profile",
                     "request": {
                         "method": "PATCH",
                         "header": [
@@ -415,7 +279,34 @@
                                 ""
                             ]
                         },
-                        "description": "Update a manager's profile. Superadmin can update any manager by ID. A non-superadmin can only update their own profile via `/accounts/admin-update/`.\n\n**Response 200**: `{ message, data: { id, name, email, ...} }`"
+                        "description": "Update a manager's profile. Superadmin can update any manager by ID.\n\n**Response 200**: `{ message, data: { id, name, email, ...} }`"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete Manager (Legacy Exec Endpoint)",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/accounts/manager-executives/{{manager_id}}/delete/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "accounts",
+                                "manager-executives",
+                                "{{manager_id}}",
+                                "delete",
+                                ""
+                            ]
+                        },
+                        "description": "Delete a Manager by ID. Requires superadmin JWT.\n\n**Response 204**: No Content"
                     },
                     "response": []
                 }
