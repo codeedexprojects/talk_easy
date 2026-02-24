@@ -208,14 +208,12 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
 
                 user_group = f"user_{user_id}"
                 payload = {
-                    "type": "user_call_response",
-                    "data": {
-                        "executive_id": self.executive_id,
-                        "user_id": user_id,
-                        "call_id": call_id,
-                        "callee_id": callee_id,
-                        "status": status
-                    }
+                    "type": "executive_response",
+                    "executive_id": self.executive_id,
+                    "user_id": user_id,
+                    "call_id": call_id,
+                    "callee_id": callee_id,
+                    "status": status
                 }
 
                 await self.channel_layer.group_send(user_group, payload)
@@ -293,6 +291,13 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             }))
         except Exception as exc:
             logger.error("[WS] Error in call_event handler: %s", exc, exc_info=True)
+
+    async def user_event(self, event):
+        """Forward user_event directly to executive client in flat JSON structure."""
+        try:
+            await self.send(text_data=json.dumps(event))
+        except Exception as exc:
+            logger.error("[WS] Error in user_event handler: %s", exc, exc_info=True)
 
     # ─────────────────────────────────────────────────────────────────────────
     # ✅ FIX: Handlers for events sent via channel_layer.group_send() from
@@ -414,15 +419,13 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                     return
 
                 payload = {
-                    "type": "call_event",  # mapped to ExecutivesConsumer.call_event
-                    "data": {
-                        "executive_id": executive_id,
-                        "user_id": data.get("user_id", getattr(self.user, 'id', None)),
-                        "call": data.get("call", False),
-                        "status": data.get("status"),
-                        "call_id": data.get("call_id", 0),
-                        "from_user": getattr(self.user, "name", "Unknown User")
-                    }
+                    "type": "user_event",  # mapped to ExecutivesConsumer.user_event
+                    "executive_id": executive_id,
+                    "user_id": data.get("user_id", getattr(self.user, 'id', None)),
+                    "call": data.get("call", False),
+                    "status": data.get("status"),
+                    "call_id": data.get("call_id", 0),
+                    "from_user": getattr(self.user, "name", "Unknown User")
                 }
 
                 executive_group = f"executive_{executive_id}"
@@ -432,7 +435,7 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                 await self.send(text_data=json.dumps({
                     "type": "acknowledgment",
                     "message": f"Call event forwarded to executive {executive_id}",
-                    "payload": payload["data"]
+                    "payload": payload
                 }))
                 return
 
@@ -465,14 +468,11 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                 })
         return result
 
-    async def user_call_response(self, event):
+    async def executive_response(self, event):
         try:
-            await self.send(text_data=json.dumps({
-                "type": "executive_response",
-                "data": event.get("data", {})
-            }))
+            await self.send(text_data=json.dumps(event))
         except Exception as exc:
-            logger.error("[WS] Error sending user_call_response: %s", exc, exc_info=True)
+            logger.error("[WS] Error sending executive_response to user: %s", exc, exc_info=True)
 
     async def status_update(self, event):
         try:
