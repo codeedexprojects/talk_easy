@@ -782,17 +782,29 @@ class CallAnalyticsView(APIView):
 
             total_talk_time_sec = analytics['total_talk_time_sec'] or 0
             today_talk_time_sec = analytics['today_talk_time_sec'] or 0
+            
+            total_calls = analytics['total_calls'] or 0
+            total_missed_calls = analytics['total_missed_calls'] or 0
+            
+            # Calculate total incoming calls (answered + missed)
+            total_incoming = total_calls + total_missed_calls
+            
+            # Calculate answer rate as a percentage
+            answer_rate = 0.0
+            if total_incoming > 0:
+                answer_rate = round((total_calls / total_incoming) * 100, 2)
 
             data = {
                 "on_call_count": analytics['on_call_count'] or 0,
-                "total_calls": analytics['total_calls'] or 0,
+                "total_calls": total_calls,
                 "today_calls": analytics['today_calls'] or 0,
                 "total_talk_time_seconds": total_talk_time_sec,
                 "total_talk_time_minutes": round(total_talk_time_sec / 60, 2),
                 "today_talk_time_seconds": today_talk_time_sec,
                 "today_talk_time_minutes": round(today_talk_time_sec / 60, 2),
-                "total_missed_calls": analytics['total_missed_calls'] or 0,
-                "today_missed_calls": analytics['today_missed_calls'] or 0
+                "total_missed_calls": total_missed_calls,
+                "today_missed_calls": analytics['today_missed_calls'] or 0,
+                "answer_rate_percentage": answer_rate
             }
 
             return Response(data, status=status.HTTP_200_OK)
