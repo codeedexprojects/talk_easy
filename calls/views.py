@@ -741,7 +741,7 @@ class AdminUserCallHistoryAPIView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 from rest_framework.exceptions import NotFound
-from django.db.models import Sum
+from django.db.models import Sum, Count, Q
 
 class CallDetailAPIView(generics.RetrieveAPIView):
     queryset = AgoraCallHistory.objects.select_related("user", "executive").all()
@@ -765,47 +765,40 @@ class CallAnalyticsView(APIView):
 
     def get(self, request):
         try:
-            today = timezone.now().date()
-            
-            on_call_count = AgoraCallHistory.objects.filter(status='joined').count()
+            # Timezone-aware local midnight for accurate 'today' filtering
+            local_now = timezone.localtime(timezone.now())
+            today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-            total_calls = AgoraCallHistory.objects.filter(status='ended').count()
+            # Single robust DB query via aggregation and conditional counting/summing
+            analytics = AgoraCallHistory.objects.aggregate(
+                on_call_count=Count('id', filter=Q(status='joined')),
+                total_calls=Count('id', filter=Q(status='ended', duration_seconds__gt=0)),
+                today_calls=Count('id', filter=Q(status='ended', duration_seconds__gt=0, start_time__gte=today_start)),
+                total_talk_time_sec=Sum('duration_seconds', filter=Q(status='ended', duration_seconds__gt=0)),
+                today_talk_time_sec=Sum('duration_seconds', filter=Q(status='ended', duration_seconds__gt=0, start_time__gte=today_start)),
+                total_missed_calls=Count('id', filter=Q(status='missed')),
+                today_missed_calls=Count('id', filter=Q(status='missed', start_time__gte=today_start)),
+            )
 
-            today_calls = AgoraCallHistory.objects.filter(
-                status='ended', start_time__date=today
-            ).count()
-
-            total_talk_time_sec = AgoraCallHistory.objects.filter(status='ended').aggregate(
-                total_duration=Sum('duration_seconds')
-            )['total_duration'] or 0
-
-            today_talk_time_sec = AgoraCallHistory.objects.filter(
-                status='ended', start_time__date=today
-            ).aggregate(total_duration=Sum('duration_seconds'))['total_duration'] or 0
-
-            total_talk_time_min = round(total_talk_time_sec / 60, 2)
-            today_talk_time_min = round(today_talk_time_sec / 60, 2)
-            total_missed_calls = AgoraCallHistory.objects.filter(status='missed').count()
-            today_missed_calls = AgoraCallHistory.objects.filter(
-                status='missed', start_time__date=today
-            ).count()
+            total_talk_time_sec = analytics['total_talk_time_sec'] or 0
+            today_talk_time_sec = analytics['today_talk_time_sec'] or 0
 
             data = {
-                "on_call_count": on_call_count,
-                "total_calls": total_calls,
-                "today_calls": today_calls,
+                "on_call_count": analytics['on_call_count'] or 0,
+                "total_calls": analytics['total_calls'] or 0,
+                "today_calls": analytics['today_calls'] or 0,
                 "total_talk_time_seconds": total_talk_time_sec,
-                "total_talk_time_minutes": total_talk_time_min,
+                "total_talk_time_minutes": round(total_talk_time_sec / 60, 2),
                 "today_talk_time_seconds": today_talk_time_sec,
-                "today_talk_time_minutes": today_talk_time_min,
-                "total_missed_calls": total_missed_calls,
-                "today_missed_calls": today_missed_calls
+                "today_talk_time_minutes": round(today_talk_time_sec / 60, 2),
+                "total_missed_calls": analytics['total_missed_calls'] or 0,
+                "today_missed_calls": analytics['today_missed_calls'] or 0
             }
 
-            return Response(data, status=200)
+            return Response(data, status=status.HTTP_200_OK)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
 class LeaveJoinedCallsView(APIView):
