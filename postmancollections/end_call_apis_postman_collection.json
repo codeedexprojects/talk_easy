@@ -1,0 +1,85 @@
+{
+    "info": {
+        "_postman_id": "ab6dc146-2ab9-4bb4-acb2-861de83f5fb4",
+        "name": "Talk Easy - End Call APIs",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "User End Call",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{user_token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/calls/1/end/user/",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "calls",
+                        "1",
+                        "end",
+                        "user",
+                        ""
+                    ]
+                },
+                "description": "Endpoint for a standard user to end an active call. The `call_id` should be passed in the URL. Requires user JWT Bearer authentication."
+            },
+            "response": []
+        },
+        {
+            "name": "Executive End Call",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "X-EXECUTIVE-TOKEN",
+                        "value": "{{executive_token}}",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/calls/1/end/executive/",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "calls",
+                        "1",
+                        "end",
+                        "executive",
+                        ""
+                    ]
+                },
+                "description": "Endpoint for an executive to end an active call. The `call_id` should be passed in the URL. Requires the `X-EXECUTIVE-TOKEN` header."
+            },
+            "response": []
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://127.0.0.1:8000"
+        },
+        {
+            "key": "user_token",
+            "value": "your_user_jwt_token_here",
+            "type": "string"
+        },
+        {
+            "key": "executive_token",
+            "value": "your_executive_token_here",
+            "type": "string"
+        }
+    ]
+}
