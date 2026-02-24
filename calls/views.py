@@ -581,33 +581,45 @@ class UserEndCallView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, call_id):
-        try:
-            call = AgoraCallHistory.objects.get(id=call_id)
-        except AgoraCallHistory.DoesNotExist:
-            return Response({"error": "Call not found or already ended"}, status=404)
+        with transaction.atomic():
+            try:
+                call = AgoraCallHistory.objects.select_for_update().get(id=call_id)
+            except AgoraCallHistory.DoesNotExist:
+                return Response({"error": "Call not found or already ended"}, status=404)
 
-        # Get user coin balance
-        try:
-            user_balance = call.user.stats.coin_balance
-        except UserStats.DoesNotExist:
-            user_balance = 0
+            if call.status in ["ended", "missed", "cancelled", "rejected"] or not call.is_active:
+                return Response({
+                    "ok": True,
+                    "message": f"Call already ended by {call.ended_by or 'system'}",
+                    "coins_deducted": getattr(call, "coins_deducted", 0),
+                    "executive_earnings": float(getattr(call, "executive_earnings", 0.0)),
+                    "duration_seconds": getattr(call, "duration_seconds", 0)
+                })
 
-        if user_balance <= 0:
-            call.end_call(ender="system")
-            reason = "Insufficient balance, call ended automatically"
-        else:
-            call.end_call(ender="user")
-            reason = "Call ended by user"
+            # Get user coin balance
+            try:
+                user_balance = call.user.stats.coin_balance
+            except UserStats.DoesNotExist:
+                user_balance = 0
 
-        # Send WebSocket notification
+            if user_balance <= 0:
+                ender = "system"
+                reason = "Insufficient balance, call ended automatically"
+            else:
+                ender = "user"
+                reason = "Call ended by user"
+
+            call.end_call(ender=ender)
+
+        # Notify after transaction commits ensuring DB updates are visible
         self.notify_end_call(call, reason)
 
         return Response({
             "ok": True,
             "message": reason,
-            "coins_deducted": call.coins_deducted,
-            "executive_earnings": float(call.executive_earnings),
-            "duration_seconds": call.duration_seconds
+            "coins_deducted": getattr(call, "coins_deducted", 0),
+            "executive_earnings": float(getattr(call, "executive_earnings", 0.0)),
+            "duration_seconds": getattr(call, "duration_seconds", 0)
         })
 
 
@@ -638,13 +650,23 @@ class ExecutiveEndCallView(APIView):
     authentication_classes = [ExecutiveTokenAuthentication]
 
     def post(self, request, call_id):
-        try:
-            call = AgoraCallHistory.objects.get(id=call_id)
-        except AgoraCallHistory.DoesNotExist:
-            return Response({"error": "Call not found or already ended"}, status=404)
+        with transaction.atomic():
+            try:
+                call = AgoraCallHistory.objects.select_for_update().get(id=call_id)
+            except AgoraCallHistory.DoesNotExist:
+                return Response({"error": "Call not found or already ended"}, status=404)
 
-        call.end_call(ender="executive")
-        reason = "Call ended by executive"
+            if call.status in ["ended", "missed", "cancelled", "rejected"] or not call.is_active:
+                return Response({
+                    "ok": True,
+                    "message": f"Call already ended by {call.ended_by or 'system'}",
+                    "coins_deducted": getattr(call, "coins_deducted", 0),
+                    "executive_earnings": float(getattr(call, "executive_earnings", 0.0)),
+                    "duration_seconds": getattr(call, "duration_seconds", 0)
+                })
+
+            call.end_call(ender="executive")
+            reason = "Call ended by executive"
 
         # Send WebSocket notification
         self.notify_end_call(call, reason)
@@ -652,9 +674,9 @@ class ExecutiveEndCallView(APIView):
         return Response({
             "ok": True,
             "message": reason,
-            "coins_deducted": call.coins_deducted,
-            "executive_earnings": float(call.executive_earnings),
-            "duration_seconds": call.duration_seconds
+            "coins_deducted": getattr(call, "coins_deducted", 0),
+            "executive_earnings": float(getattr(call, "executive_earnings", 0.0)),
+            "duration_seconds": getattr(call, "duration_seconds", 0)
         })
 
     def notify_end_call(self, call, reason):

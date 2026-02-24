@@ -77,100 +77,115 @@ class AgoraCallHistory(models.Model):
         return (ended_at - base_start) if ended_at and base_start else timezone.timedelta()
 
     def end_call(self, ender="client", request_id=None):
-        if self.status in ["ended", "missed", "cancelled", "rejected"] or not self.is_active:
-            return  
+        from users.models import UserStats
+        from executives.models import Executive, ExecutiveStats
 
-        now_time = timezone.now()
-        self.end_time = now_time
+        with transaction.atomic():
+            try:
+                locked_call = AgoraCallHistory.objects.select_for_update().get(id=self.id)
+            except AgoraCallHistory.DoesNotExist:
+                return
 
-        if not self.joined_at:
-            self.status = "cancelled" if ender in ["user", "client"] else "missed"
-            self.duration = timedelta()
-            self.duration_seconds = 0
+            if locked_call.status in ["ended", "missed", "cancelled", "rejected"] or not locked_call.is_active:
+                self.refresh_from_db()
+                return
+
+            now_time = timezone.now()
+            self.end_time = now_time
+
+            if not self.joined_at:
+                self.status = "cancelled" if ender in ["user", "client"] else "missed"
+                self.duration = timedelta()
+                self.duration_seconds = 0
+                self.is_active = False
+                self.ended_by = ender
+                if request_id:
+                    self.end_request_id = request_id
+                
+                if hasattr(self.executive, "on_call"):
+                    exec_obj = Executive.objects.select_for_update().get(id=self.executive.id)
+                    exec_obj.on_call = False
+                    exec_obj.save(update_fields=["on_call"])
+                    self.executive.on_call = False
+                    
+                self.save(update_fields=["end_time", "duration", "duration_seconds", "status", "is_active", "ended_by", "end_request_id"])
+                return
+
+            base_start = self.joined_at
+            self.duration = (now_time - base_start)
+            duration_seconds = int(self.duration.total_seconds())
+            self.duration_seconds = duration_seconds
+
+            coins_to_deduct = int(Decimal(duration_seconds) * Decimal(str(self.coins_per_second)))
+            self.coins_deducted = coins_to_deduct
+
+            if hasattr(self.user, "stats"):
+                user_stats = UserStats.objects.select_for_update().get(user=self.user)
+                user_stats.coin_balance = max(0, user_stats.coin_balance - coins_to_deduct)
+                user_stats.total_calls += 1
+                user_stats.total_call_seconds += duration_seconds
+                if self.end_time.date() == timezone.now().date():
+                    user_stats.total_call_seconds_today += duration_seconds
+                user_stats.save(update_fields=[
+                    "coin_balance",
+                    "total_calls",
+                    "total_call_seconds",
+                    "total_call_seconds_today"
+                ])
+
+            earnings = Decimal("0.0")
+            if hasattr(self.executive, "stats"):
+                exec_stats = ExecutiveStats.objects.select_for_update().get(executive=self.executive)
+                
+                exec_stats.total_picked_calls += 1
+                exec_stats.total_talk_seconds_today += duration_seconds
+                exec_stats.total_talk_seconds += duration_seconds
+                if getattr(self.executive, "is_online", False):
+                    exec_stats.total_on_duty_seconds += duration_seconds
+
+                amount_per_second = Decimal(str(self.amount_per_min)) / Decimal("60")
+                earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                self.executive_earnings = earnings
+
+                exec_stats.total_earnings += earnings
+                if self.end_time.date() == timezone.now().date():
+                    exec_stats.earnings_today += earnings
+                exec_stats.vault_Balance += int(earnings)
+                exec_stats.pending_payout += earnings
+                exec_stats.save(update_fields=[
+                    "total_picked_calls",
+                    "total_talk_seconds",
+                    "total_talk_seconds_today",
+                    "total_on_duty_seconds",
+                    "total_earnings",
+                    "earnings_today",
+                    "vault_Balance",
+                    "pending_payout"
+                ])
+
+            if hasattr(self.executive, "on_call"):
+                exec_obj = Executive.objects.select_for_update().get(id=self.executive.id)
+                exec_obj.on_call = False
+                exec_obj.save(update_fields=["on_call"])
+                self.executive.on_call = False
+
+            self.status = "ended"
             self.is_active = False
             self.ended_by = ender
             if request_id:
                 self.end_request_id = request_id
-            
-            if hasattr(self.executive, "on_call"):
-                self.executive.on_call = False
-                self.executive.save(update_fields=["on_call"])
-                
-            self.save(update_fields=["end_time", "duration", "duration_seconds", "status", "is_active", "ended_by", "end_request_id"])
-            return
 
-        base_start = self.joined_at
-        self.duration = (now_time - base_start)
-        duration_seconds = int(self.duration.total_seconds())
-        self.duration_seconds = duration_seconds
-
-        coins_to_deduct = int(Decimal(duration_seconds) * Decimal(str(self.coins_per_second)))
-        self.coins_deducted = coins_to_deduct
-
-        if hasattr(self.user, "stats"):
-            user_stats = self.user.stats
-            user_stats.coin_balance = max(0, user_stats.coin_balance - coins_to_deduct)
-            user_stats.total_calls += 1
-            user_stats.total_call_seconds += duration_seconds
-            if self.end_time.date() == timezone.now().date():
-                user_stats.total_call_seconds_today += duration_seconds
-            user_stats.save(update_fields=[
-                "coin_balance",
-                "total_calls",
-                "total_call_seconds",
-                "total_call_seconds_today"
+            self.save(update_fields=[
+                "end_time",
+                "duration",
+                "duration_seconds",
+                "coins_deducted",
+                "executive_earnings",
+                "status",
+                "is_active",
+                "ended_by",
+                "end_request_id"
             ])
-
-        earnings = Decimal("0.0")
-        if hasattr(self.executive, "stats"):
-            exec_stats = self.executive.stats
-            exec_stats.total_picked_calls += 1
-            exec_stats.total_talk_seconds_today += duration_seconds
-            exec_stats.total_talk_seconds += duration_seconds
-            if getattr(self.executive, "is_online", False):
-                exec_stats.total_on_duty_seconds += duration_seconds
-
-            amount_per_second = Decimal(str(self.amount_per_min)) / Decimal("60")
-            earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            self.executive_earnings = earnings
-
-            exec_stats.total_earnings += earnings
-            if self.end_time.date() == timezone.now().date():
-                exec_stats.earnings_today += earnings
-            exec_stats.vault_Balance += int(earnings)
-            exec_stats.pending_payout += earnings
-            exec_stats.save(update_fields=[
-                "total_picked_calls",
-                "total_talk_seconds",
-                "total_talk_seconds_today",
-                "total_on_duty_seconds",
-                "total_earnings",
-                "earnings_today",
-                "vault_Balance",
-                "pending_payout"
-            ])
-
-        if hasattr(self.executive, "on_call"):
-            self.executive.on_call = False
-            self.executive.save(update_fields=["on_call"])
-
-        self.status = "ended"
-        self.is_active = False
-        self.ended_by = ender
-        if request_id:
-            self.end_request_id = request_id
-
-        self.save(update_fields=[
-            "end_time",
-            "duration",
-            "duration_seconds",
-            "coins_deducted",
-            "executive_earnings",
-            "status",
-            "is_active",
-            "ended_by",
-            "end_request_id"
-        ])
 
 
 
