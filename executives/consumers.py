@@ -433,9 +433,10 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
 
                 # Acknowledge to sender
                 await self.send(text_data=json.dumps({
-                    "type": "acknowledgment",
-                    "message": f"Call event forwarded to executive {executive_id}",
-                    "payload": payload
+                    "type": "user_event_sent",
+                    "to_executive": executive_id,
+                    "call_id": data.get("call_id", 0),
+                    "status": data.get("status")
                 }))
                 return
 
