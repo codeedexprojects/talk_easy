@@ -201,51 +201,62 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 callee_id = data.get("callee_id")
                 status = data.get("status")
 
+                logger.debug(
+                    "[WS] executive_response payload received: call_id=%s status=%s frontend_user_id=%s",
+                    call_id, status, frontend_user_id,
+                )
+
                 if not call_id or not status:
                     await self.send(text_data=json.dumps({
                         "error": "Missing 'call_id' or 'status' in executive_response."
                     }))
                     return
 
-                # Resolve the real Django user.pk from the call record;
-                # we do NOT trust any user_id coming from the frontend.
-                try:
-                    user_pk = await self.get_user_id_from_call(call_id)
-                except Exception as exc:
-                    logger.error("[WS] Failed to resolve user from call_id=%s: %s", call_id, exc, exc_info=True)
-                    await self.send(text_data=json.dumps({
-                        "type": "executive_response_error",
-                        "error": "Internal error resolving user for this call.",
-                        "call_id": call_id
-                    }))
-                    return
-
+                # resolve **real** django pk, do NOT trust frontend id
+                user_pk = await self.get_user_id_from_call(call_id)
                 if not user_pk:
                     logger.warning(
-                        "[WS] No user found for call_id=%s in executive_response (frontend_user_id=%s)",
-                        call_id,
-                        frontend_user_id,
+                        "[WS] executive_response: could not resolve user_pk for call_id=%s (frontend_user_id=%s)",
+                        call_id, frontend_user_id,
                     )
                     await self.send(text_data=json.dumps({
                         "type": "executive_response_error",
-                        "error": "No user associated with this call or call does not exist.",
+                        "error": "Unable to identify user for this call.",
                         "call_id": call_id
                     }))
                     return
 
                 user_group = f"user_{user_pk}"
+                logger.debug("[WS] Sending executive_response to group %s", user_group)
 
                 payload = {
                     "type": "executive_response",
                     "executive_id": self.executive_id,
-                    "user_id": user_pk,
+                    "user_id": user_pk,     # communicate the pk, not the frontend value
                     "call_id": call_id,
                     "callee_id": callee_id,
                     "status": status,
                 }
 
-                await self.channel_layer.group_send(user_group, payload)
+                try:
+                    await self.channel_layer.group_send(user_group, payload)
+                    logger.info(
+                        "[WS] executive_response sent to %s for call_id=%s status=%s",
+                        user_group, call_id, status
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "[WS] Failed to group_send executive_response to %s: %s",
+                        user_group, exc, exc_info=True
+                    )
+                    await self.send(text_data=json.dumps({
+                        "type": "executive_response_error",
+                        "error": "Internal server error delivering response",
+                        "call_id": call_id
+                    }))
+                    return
 
+                # acknowledge back to executive connection
                 await self.send(text_data=json.dumps({
                     "type": "executive_response_sent",
                     "to_user": user_pk,
@@ -253,6 +264,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                     "status": status
                 }))
                 return
+
             # Unknown type - ignore or inform client
             await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
 
@@ -263,19 +275,51 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
     @database_sync_to_async
     def get_user_id_from_call(self, call_id):
         """
-        Resolve the real Django user.pk from an AgoraCallHistory record.
+        Resolve the real Django user PK from an AgoraCallHistory record.
 
-        We always use this to derive the WebSocket group instead of trusting
-        any user_id provided by the frontend.
+        The stored ``user_id`` column may contain a custom identifier; we look
+        up the corresponding UserProfile or Executive and return its primary
+        key.  If nothing can be found we return ``None`` and log a warning.
         """
         try:
             call = AgoraCallHistory.objects.only("id", "user_id").get(id=call_id)
-            return call.user_id
+            raw = call.user_id
+            if raw is None:
+                logger.warning(
+                    "[WS] get_user_id_from_call: call %s has null user_id", call_id
+                )
+                return None
+
+            # try both models and both id/user_id lookups
+            for Model in (UserProfile, Executive):
+                # primary key match
+                try:
+                    obj = Model.objects.get(id=raw)
+                    return obj.id
+                except Model.DoesNotExist:
+                    pass
+
+                # custom user_id field match
+                if hasattr(Model, "user_id"):
+                    try:
+                        obj = Model.objects.get(user_id=raw)
+                        return obj.id
+                    except Model.DoesNotExist:
+                        pass
+
+            logger.warning(
+                "[WS] get_user_id_from_call: no user record found for raw id=%s", raw
+            )
+            return None
+
         except AgoraCallHistory.DoesNotExist:
             logger.warning("[WS] get_user_id_from_call: call_id=%s not found", call_id)
             return None
         except Exception as exc:
-            logger.error("[WS] get_user_id_from_call: unexpected error for call_id=%s: %s", call_id, exc, exc_info=True)
+            logger.error(
+                "[WS] get_user_id_from_call: unexpected error for call_id=%s: %s",
+                call_id, exc, exc_info=True
+            )
             return None
 
     @database_sync_to_async
