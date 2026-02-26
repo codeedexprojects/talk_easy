@@ -197,8 +197,8 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             if msg_type == "executive_response":
                 user_id = data.get("user_id")
                 call_id = data.get("call_id")
-                callee_id = data.get("callee_id") 
-                status = data.get("status") 
+                callee_id = data.get("callee_id")
+                status = data.get("status")
 
                 if not user_id or not status:
                     await self.send(text_data=json.dumps({
@@ -206,7 +206,10 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                     }))
                     return
 
-                user_group = f"user_{user_id}"
+                # 🔥 IMPORTANT FIX:
+                # Always send to Django user's primary key group
+                user_group = f"user_{int(user_id)}"
+
                 payload = {
                     "type": "executive_response",
                     "executive_id": self.executive_id,
@@ -217,7 +220,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 }
 
                 await self.channel_layer.group_send(user_group, payload)
-                # Optionally acknowledge to executive
+
                 await self.send(text_data=json.dumps({
                     "type": "executive_response_sent",
                     "to_user": user_id,
@@ -225,7 +228,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                     "status": status
                 }))
                 return
-
             # Unknown type - ignore or inform client
             await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
 
