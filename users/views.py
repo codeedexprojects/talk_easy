@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from users.authentication import UserProfileJWTAuthentication
 from users.models import  ReferralCode, ReferralHistory, DeletedUser,UserProfile
-from executives.utils import send_otp
+from executives.utils import send_otp, is_test_number
 from rest_framework.permissions import IsAuthenticated,AllowAny
 from users.serializers import *
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -47,7 +47,7 @@ class RegisterOrLoginView(APIView):
                 }, status=status.HTTP_403_FORBIDDEN)
 
             # ✅ Test login shortcut (bypass SMS OTP)
-            if mobile_number == "+918086851333":
+            if is_test_number(mobile_number):
                 otp = "123456"
                 user.otp = otp
                 user.save(update_fields=['otp'])
@@ -104,7 +104,7 @@ class RegisterOrLoginView(APIView):
             initial_coin_balance = 0 if is_deleted_user else 1000
 
             # ✅ Test registration shortcut
-            if mobile_number == "+918086851333":
+            if is_test_number(mobile_number):
                 otp = "123456"
             else:
                 # Send OTP
@@ -174,7 +174,7 @@ class VerifyOTPView(APIView):
         
         try:
             # ✅ Test verification shortcut
-            if mobile_number == "+918086851333" and otp == "123456":
+            if is_test_number(mobile_number) and otp == "123456":
                 user = UserProfile.objects.get(mobile_number=mobile_number)
             else:
                 user = UserProfile.objects.get(mobile_number=mobile_number, otp=otp)
