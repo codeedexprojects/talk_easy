@@ -74,7 +74,7 @@ class ExecutiveStats(models.Model):
         "Executive", on_delete=models.CASCADE, related_name="stats"
     )
     coins_per_second = models.FloatField(default=3)  # from user
-    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, default=2.0)
     vault_Balance = models.IntegerField(default=0)
 
     # Call tracking
