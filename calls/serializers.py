@@ -152,6 +152,9 @@ class AgoraCallHistorySerializer(serializers.ModelSerializer):
 class OngoingCallHistorySerializer(serializers.ModelSerializer):
     user_id = serializers.CharField(source="user.user.user_id", read_only=True)
     executive_id = serializers.CharField(source="executive.user.executive_id", read_only=True)
+    duration = serializers.SerializerMethodField()
+    user = serializers.IntegerField(source="user.id", read_only=True)
+    executive = serializers.IntegerField(source="executive.id", read_only=True)
 
     class Meta:
         model = AgoraCallHistory
@@ -168,12 +171,19 @@ class OngoingCallHistorySerializer(serializers.ModelSerializer):
             "joined_at",
             "end_time",
             "duration_seconds",
+            "duration",
             "coins_deducted",
             "executive_earnings",
             "coins_per_second",
             "amount_per_min",
             "user_id",
             "executive_id",
+            "user",
+            "executive",
             "ended_by",
             "end_request_id",
         ]
+
+    def get_duration(self, obj):
+        mins, secs = divmod(obj.duration_seconds or 0, 60)
+        return f"{mins:02d}:{secs:02d}"
