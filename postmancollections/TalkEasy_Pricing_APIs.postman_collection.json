@@ -1,0 +1,371 @@
+{
+    "info": {
+        "_postman_id": "bb234c4b-bb23-bb23-bb23-bb23ccc444bb",
+        "name": "TalkEasy_Pricing_APIs",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Global Pricing",
+            "item": [
+                {
+                    "name": "GET Global Pricing",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/global/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "global",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "UPDATE Global Pricing",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"default_amount_per_min\": \"2.50\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/global/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "global",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "PATCH Global Pricing",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"default_amount_per_min\": \"3.00\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/global/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "global",
+                                ""
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Rate Schedules",
+            "item": [
+                {
+                    "name": "GET All Rate Schedules",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "CREATE Rate Schedule - Always Active",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Peak Hours\",\n    \"amount_per_min\": \"3.50\",\n    \"start_time\": \"18:00:00\",\n    \"end_time\": \"22:00:00\",\n    \"days_of_week\": [0, 1, 2, 3, 4],\n    \"active\": true,\n    \"priority\": 10\n}"
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "CREATE Rate Schedule - Midnight Wrap",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Night Rate\",\n    \"amount_per_min\": \"2.00\",\n    \"start_time\": \"22:00:00\",\n    \"end_time\": \"06:00:00\",\n    \"days_of_week\": [],\n    \"active\": true,\n    \"priority\": 5\n}"
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "CREATE Rate Schedule - Weekend Only",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Weekend Rate\",\n    \"amount_per_min\": \"4.00\",\n    \"days_of_week\": [5, 6],\n    \"active\": true,\n    \"priority\": 8\n}"
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "GET Specific Rate Schedule",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                "{{schedule_id}}"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "UPDATE Rate Schedule",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Updated Peak Hours\",\n    \"amount_per_min\": \"3.75\",\n    \"start_time\": \"17:30:00\",\n    \"end_time\": \"22:30:00\",\n    \"days_of_week\": [0, 1, 2, 3, 4, 5],\n    \"active\": true,\n    \"priority\": 12\n}"
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                "{{schedule_id}}"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "PATCH Rate Schedule - Deactivate",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"active\": false\n}"
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                "{{schedule_id}}"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "DELETE Rate Schedule",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{admin_access_token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "executives",
+                                "pricing",
+                                "schedules",
+                                "{{schedule_id}}"
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://127.0.0.1:8000"
+        },
+        {
+            "key": "admin_access_token",
+            "value": "your_admin_jwt_token_here"
+        },
+        {
+            "key": "schedule_id",
+            "value": "1"
+        }
+    ]
+}

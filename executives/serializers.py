@@ -9,17 +9,9 @@ class LanguageSerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
 
 class ExecutiveSerializer(serializers.ModelSerializer):
-    coins_per_second = serializers.SerializerMethodField()
-    
     class Meta:
         model = Executive
         fields = '__all__'
-
-    def get_coins_per_second(self, obj):
-        try:
-            return obj.stats.coins_per_second
-        except ExecutiveStats.DoesNotExist:
-            return None
 
     def create(self, validated_data):
         if 'password' in validated_data:
