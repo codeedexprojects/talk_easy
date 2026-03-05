@@ -135,6 +135,8 @@ class AgoraCallHistory(models.Model):
 
             earnings = Decimal("0.0")
             if hasattr(self.executive, "stats"):
+                from executives.pricing import get_current_amount_per_min
+                
                 exec_stats = ExecutiveStats.objects.select_for_update().get(executive=self.executive)
                 
                 exec_stats.total_picked_calls += 1
@@ -143,9 +145,12 @@ class AgoraCallHistory(models.Model):
                 if getattr(self.executive, "is_online", False):
                     exec_stats.total_on_duty_seconds += duration_seconds
 
-                amount_per_second = Decimal(str(self.amount_per_min)) / Decimal("60")
+                # Use current global pricing rate instead of stored rate
+                current_amount_per_min = get_current_amount_per_min(self.executive)
+                amount_per_second = Decimal(str(current_amount_per_min)) / Decimal("60")
                 earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
                 self.executive_earnings = earnings
+                self.amount_per_min = current_amount_per_min  # Update the stored amount to reflect actual rate used
 
                 exec_stats.total_earnings += earnings
                 if self.end_time.date() == timezone.now().date():
