@@ -135,6 +135,8 @@ class AgoraCallHistory(models.Model):
 
             earnings = Decimal("0.0")
             if hasattr(self.executive, "stats"):
+                from executives.models import GlobalPricing
+
                 exec_stats = ExecutiveStats.objects.select_for_update().get(executive=self.executive)
 
                 exec_stats.total_picked_calls += 1
@@ -143,14 +145,13 @@ class AgoraCallHistory(models.Model):
                 if getattr(self.executive, "is_online", False):
                     exec_stats.total_on_duty_seconds += duration_seconds
 
-                # Use the rate stored on this call record at initiation time.
-                # self.amount_per_min was set when the call was created (CallInitiateView)
-                # using get_current_amount_per_min(), so it already reflects the correct
-                # global/personal/schedule rate at the time the call started.
-                stored_rate = self.amount_per_min if self.amount_per_min else Decimal("0.0")
-                amount_per_second = Decimal(str(stored_rate)) / Decimal("60")
+                # Always use GlobalPricing.default_amount_per_min for earnings calculation.
+                global_pricing = GlobalPricing.objects.first()
+                global_rate = global_pricing.default_amount_per_min if global_pricing else Decimal("2.0")
+                amount_per_second = Decimal(str(global_rate)) / Decimal("60")
                 earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
                 self.executive_earnings = earnings
+                self.amount_per_min = global_rate  # store the actual rate used
 
                 exec_stats.total_earnings += earnings
                 if self.end_time.date() == timezone.now().date():
@@ -186,6 +187,7 @@ class AgoraCallHistory(models.Model):
                 "duration_seconds",
                 "coins_deducted",
                 "executive_earnings",
+                "amount_per_min",
                 "status",
                 "is_active",
                 "ended_by",
