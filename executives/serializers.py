@@ -62,6 +62,7 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         queryset=Language.objects.all(),
         required=False
     )
+    coins_per_second = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
@@ -71,9 +72,15 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
-            'on_call', 'password', 'languages_known'
+            'on_call', 'password', 'languages_known', 'coins_per_second'
         ]
         read_only_fields = ['id', 'created_at', 'last_login']
+
+    def get_coins_per_second(self, obj):
+        """Get coins_per_second from ExecutiveStats"""
+        if hasattr(obj, 'stats'):
+            return obj.stats.coins_per_second
+        return None
 
     def create(self, validated_data):
         languages = validated_data.pop("languages_known", [])
