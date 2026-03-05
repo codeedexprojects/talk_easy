@@ -135,22 +135,22 @@ class AgoraCallHistory(models.Model):
 
             earnings = Decimal("0.0")
             if hasattr(self.executive, "stats"):
-                from executives.pricing import get_current_amount_per_min
-                
                 exec_stats = ExecutiveStats.objects.select_for_update().get(executive=self.executive)
-                
+
                 exec_stats.total_picked_calls += 1
                 exec_stats.total_talk_seconds_today += duration_seconds
                 exec_stats.total_talk_seconds += duration_seconds
                 if getattr(self.executive, "is_online", False):
                     exec_stats.total_on_duty_seconds += duration_seconds
 
-                # Use current global pricing rate instead of stored rate
-                current_amount_per_min = get_current_amount_per_min(self.executive)
-                amount_per_second = Decimal(str(current_amount_per_min)) / Decimal("60")
+                # Use the rate stored on this call record at initiation time.
+                # self.amount_per_min was set when the call was created (CallInitiateView)
+                # using get_current_amount_per_min(), so it already reflects the correct
+                # global/personal/schedule rate at the time the call started.
+                stored_rate = self.amount_per_min if self.amount_per_min else Decimal("0.0")
+                amount_per_second = Decimal(str(stored_rate)) / Decimal("60")
                 earnings = (Decimal(duration_seconds) * amount_per_second).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
                 self.executive_earnings = earnings
-                self.amount_per_min = current_amount_per_min  # Update the stored amount to reflect actual rate used
 
                 exec_stats.total_earnings += earnings
                 if self.end_time.date() == timezone.now().date():
