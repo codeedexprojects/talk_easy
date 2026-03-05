@@ -13,6 +13,7 @@ from calls.utils import build_agora_token
 from executives.authentication import ExecutiveTokenAuthentication
 from rest_framework.permissions import IsAuthenticated
 from executives.models import ExecutiveStats
+from executives.pricing import get_current_amount_per_min
 from .pagination import CustomCallPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAdminUser
@@ -81,7 +82,7 @@ class CallInitiateView(APIView):
 
             # Get executive stats
             exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
-            rate_per_minute = exec_stats.amount_per_min
+            rate_per_minute = get_current_amount_per_min(executive)
             coins_per_second = exec_stats.coins_per_second
             executive_code = executive.executive_id
 

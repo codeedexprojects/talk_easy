@@ -47,5 +47,10 @@ urlpatterns = [
     path('blocked-users/', AllBlockedUsersListView.as_view(), name='all-blocked-users'),
     path('search/', ExecutiveSearchView.as_view(), name='executive-search'),
     path('analytics/', ExecutiveAnalyticsView.as_view(), name='executive-analytics'),
+    
+    # Pricing Management URLs (Admin Only)
+    path('pricing/global/', GlobalPricingView.as_view(), name='global-pricing'),
+    path('pricing/schedules/', RateScheduleListCreateView.as_view(), name='rate-schedule-list-create'),
+    path('pricing/schedules/<int:pk>/', RateScheduleDetailView.as_view(), name='rate-schedule-detail'),
 
 ]

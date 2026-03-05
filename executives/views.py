@@ -1000,3 +1000,45 @@ class ExecutiveAnalyticsView(APIView):
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# Pricing Management Views (Admin Only)
+
+class GlobalPricingView(generics.RetrieveUpdateAPIView):
+    """
+    Admin view to manage global default pricing.
+    GET: Retrieve current global pricing
+    PUT/PATCH: Update global pricing
+    """
+    queryset = GlobalPricing.objects.all()
+    serializer_class = GlobalPricingSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    
+    def get_object(self):
+        # Always return the first (and should be only) GlobalPricing instance
+        obj, created = GlobalPricing.objects.get_or_create(
+            defaults={'default_amount_per_min': Decimal('2.0')}
+        )
+        return obj
+
+
+class RateScheduleListCreateView(generics.ListCreateAPIView):
+    """
+    Admin view to list and create rate schedules.
+    """
+    queryset = RateSchedule.objects.all()
+    serializer_class = RateScheduleSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    ordering = ['-priority', 'name']
+
+
+class RateScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Admin view to retrieve, update, or delete a specific rate schedule.
+    """
+    queryset = RateSchedule.objects.all()
+    serializer_class = RateScheduleSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]

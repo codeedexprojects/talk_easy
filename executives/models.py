@@ -5,6 +5,8 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from accounts.managers import ExecutiveManager
 import uuid
 from datetime import timedelta
+from decimal import Decimal
+import json
 
 
 class Language(models.Model):
@@ -54,6 +56,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
     is_favourite = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    use_personal_rate = models.BooleanField(default=False, help_text="If true, use personal amount_per_min instead of global rates")
 
     objects = ExecutiveManager()
 
@@ -63,6 +66,105 @@ class Executive(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return f"{self.name} ({self.executive_id})"
 
+
+class GlobalPricing(models.Model):
+    """
+    Holds the default global amount_per_min used when no active RateSchedule matches.
+    Admin-managed global fallback rate.
+    """
+    default_amount_per_min = models.DecimalField(
+        max_digits=10, decimal_places=2, default=2.0,
+        help_text="Default global rate per minute for executives"
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Global Pricing"
+        verbose_name_plural = "Global Pricing"
+
+    def __str__(self):
+        return f"Global Default: {self.default_amount_per_min}/min"
+
+
+class RateSchedule(models.Model):
+    """
+    Time-dependent rate schedules for executives.
+    Supports optional time ranges and days of week.
+    Higher priority wins in overlaps.
+    """
+    DAYS_OF_WEEK = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
+
+    name = models.CharField(max_length=100, help_text="Descriptive name for the schedule")
+    amount_per_min = models.DecimalField(max_digits=10, decimal_places=2, help_text="Rate per minute during this schedule")
+    start_time = models.TimeField(null=True, blank=True, help_text="Start time (optional, if null applies all day)")
+    end_time = models.TimeField(null=True, blank=True, help_text="End time (optional, if null applies all day)")
+    days_of_week = models.JSONField(default=list, blank=True, help_text="List of day numbers 0-6 (Monday=0), empty means all days")
+    active = models.BooleanField(default=True, help_text="Whether this schedule is active")
+    priority = models.PositiveIntegerField(default=0, help_text="Higher priority wins in overlaps")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-priority', 'name']
+        verbose_name = "Rate Schedule"
+        verbose_name_plural = "Rate Schedules"
+
+    def __str__(self):
+        time_range = ""
+        if self.start_time and self.end_time:
+            time_range = f" {self.start_time}-{self.end_time}"
+        elif self.start_time:
+            time_range = f" from {self.start_time}"
+        elif self.end_time:
+            time_range = f" until {self.end_time}"
+        
+        days = ""
+        if self.days_of_week:
+            day_names = [dict(self.DAYS_OF_WEEK)[d] for d in self.days_of_week if d in dict(self.DAYS_OF_WEEK)]
+            days = f" ({', '.join(day_names)})"
+        
+        return f"{self.name}: {self.amount_per_min}/min{time_range}{days}"
+
+    def matches_time(self, current_time, current_weekday):
+        """
+        Check if this schedule matches the current time and day.
+        """
+        # Check if active
+        if not self.active:
+            return False
+        
+        # Check days of week (if specified)
+        if self.days_of_week and current_weekday not in self.days_of_week:
+            return False
+        
+        # If no time constraints, always matches
+        if not self.start_time and not self.end_time:
+            return True
+        
+        # Check time range
+        if self.start_time and self.end_time:
+            # Handle midnight wrap-around
+            if self.start_time <= self.end_time:
+                # Same day range
+                return self.start_time <= current_time <= self.end_time
+            else:
+                # Midnight wrap-around (e.g., 23:00 to 05:00)
+                return current_time >= self.start_time or current_time <= self.end_time
+        elif self.start_time:
+            return current_time >= self.start_time
+        elif self.end_time:
+            return current_time <= self.end_time
+        
+        return True
 
 
 from django.db import models

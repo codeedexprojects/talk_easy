@@ -9,9 +9,17 @@ class LanguageSerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
 
 class ExecutiveSerializer(serializers.ModelSerializer):
+    coins_per_second = serializers.SerializerMethodField()
+    
     class Meta:
         model = Executive
         fields = '__all__'
+
+    def get_coins_per_second(self, obj):
+        try:
+            return obj.stats.coins_per_second
+        except ExecutiveStats.DoesNotExist:
+            return None
 
     def create(self, validated_data):
         if 'password' in validated_data:
@@ -277,3 +285,22 @@ class BlockedUsersSerializer(serializers.ModelSerializer):
             'executive_id',
             'user_id'
         ]
+
+
+# Pricing Serializers
+
+class GlobalPricingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GlobalPricing
+        fields = ['id', 'default_amount_per_min', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class RateScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RateSchedule
+        fields = [
+            'id', 'name', 'amount_per_min', 'start_time', 'end_time',
+            'days_of_week', 'active', 'priority', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

@@ -1,0 +1,346 @@
+{
+  "info": {
+    "name": "TalkEasy Pricing Management APIs",
+    "description": "Admin APIs for managing global pricing and time-dependent rate schedules for executives",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "talkeasy-pricing"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{admin_jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "admin_jwt_token",
+      "value": "",
+      "type": "string",
+      "description": "JWT token for admin authentication"
+    },
+    {
+      "key": "schedule_id",
+      "value": "",
+      "type": "string",
+      "description": "ID of created rate schedule for testing"
+    }
+  ],
+  "item": [
+    {
+      "name": "Global Pricing",
+      "item": [
+        {
+          "name": "Get Global Pricing",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/global/",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "global", ""]
+            },
+            "description": "Retrieve the current global default pricing configuration"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Global Pricing",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"default_amount_per_min\": \"2.50\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/global/",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "global", ""]
+            },
+            "description": "Update the global default pricing. Only admins can perform this action."
+          },
+          "response": []
+        },
+        {
+          "name": "Patch Global Pricing",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"default_amount_per_min\": \"3.00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/global/",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "global", ""]
+            },
+            "description": "Partially update the global default pricing"
+          },
+          "response": []
+        }
+      ],
+      "description": "APIs for managing the global default pricing that applies when no time-based schedules match"
+    },
+    {
+      "name": "Rate Schedules",
+      "item": [
+        {
+          "name": "List Rate Schedules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", ""]
+            },
+            "description": "Retrieve all rate schedules ordered by priority (highest first)"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Rate Schedule - Always Active",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Standard Rate\",\n  \"amount_per_min\": \"2.50\",\n  \"active\": true,\n  \"priority\": 1,\n  \"days_of_week\": [],\n  \"start_time\": null,\n  \"end_time\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", ""]
+            },
+            "description": "Create a rate schedule that applies 24/7 on all days. Empty days_of_week means all days."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Rate Schedule - Peak Hours",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Peak Hours (Mon-Fri 9AM-6PM)\",\n  \"amount_per_min\": \"3.50\",\n  \"active\": true,\n  \"priority\": 10,\n  \"days_of_week\": [0, 1, 2, 3, 4],\n  \"start_time\": \"09:00:00\",\n  \"end_time\": \"18:00:00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", ""]
+            },
+            "description": "Create a high-priority schedule for peak business hours Monday-Friday. Days: 0=Monday, 1=Tuesday, etc."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Rate Schedule - Night Hours (Midnight Wrap)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Night Rate (11PM-5AM)\",\n  \"amount_per_min\": \"1.50\",\n  \"active\": true,\n  \"priority\": 5,\n  \"days_of_week\": [],\n  \"start_time\": \"23:00:00\",\n  \"end_time\": \"05:00:00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", ""]
+            },
+            "description": "Create a schedule that wraps around midnight. When start_time > end_time, it means the period crosses midnight."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Rate Schedule Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", "{{schedule_id}}"]
+            },
+            "description": "Retrieve details of a specific rate schedule by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Rate Schedule",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Peak Hours\",\n  \"amount_per_min\": \"4.00\",\n  \"active\": true,\n  \"priority\": 15,\n  \"days_of_week\": [0, 1, 2, 3, 4],\n  \"start_time\": \"09:00:00\",\n  \"end_time\": \"17:00:00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", "{{schedule_id}}"]
+            },
+            "description": "Update an existing rate schedule. All fields are required for PUT requests."
+          },
+          "response": []
+        },
+        {
+          "name": "Patch Rate Schedule",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_per_min\": \"3.75\",\n  \"priority\": 20\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", "{{schedule_id}}"]
+            },
+            "description": "Partially update a rate schedule. Only include fields you want to change."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Rate Schedule",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/executives/pricing/schedules/{{schedule_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["executives", "pricing", "schedules", "{{schedule_id}}"]
+            },
+            "description": "Delete a rate schedule. This action cannot be undone."
+          },
+          "response": []
+        }
+      ],
+      "description": "APIs for managing time-dependent rate schedules with priority-based conflict resolution"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set base URL if not set",
+          "if (!pm.environment.get('base_url')) {",
+          "    pm.environment.set('base_url', 'http://localhost:8000');",
+          "}",
+          "",
+          "// Ensure admin JWT token is available",
+          "if (!pm.environment.get('admin_jwt_token')) {",
+          "    console.warn('Admin JWT token not set. Please authenticate first.');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common test assertions for all requests",
+          "pm.test('Status code is not 5xx', function () {",
+          "    pm.expect(pm.response.code).to.not.be.oneOf([500, 501, 502, 503, 504, 505]);",
+          "});",
+          "",
+          "pm.test('Response time is reasonable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "if (pm.response.code === 401) {",
+          "    pm.test('Authentication required', function () {",
+          "        const responseJson = pm.response.json();",
+          "        pm.expect(responseJson.detail).to.include('authentication');",
+          "    });",
+          "}",
+          "",
+          "if (pm.response.code === 403) {",
+          "    pm.test('Admin permission required', function () {",
+          "        const responseJson = pm.response.json();",
+          "        pm.expect(responseJson.detail).to.include('permission');",
+          "    });",
+          "}",
+          "",
+          "// Store schedule ID from create responses",
+          "if (pm.request.method === 'POST' && pm.request.url.path.includes('schedules') && pm.response.code === 201) {",
+          "    const responseJson = pm.response.json();",
+          "    if (responseJson.id) {",
+          "        pm.environment.set('schedule_id', responseJson.id);",
+          "        console.log('Stored schedule ID:', responseJson.id);",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ]
+}
