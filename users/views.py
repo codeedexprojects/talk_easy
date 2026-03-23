@@ -328,24 +328,24 @@ class ExecutiveListAPIView(APIView):
     def get(self, request):
         executives = (
             Executive.objects
-             # .annotate(
-            #     online_priority=Case(
-            #         When(is_online=True, then=Value(1)),
-            #         default=Value(0),
-            #         output_field=IntegerField()
-            #     )
-            # )
-            # .order_by('-online_priority', '-created_at')
-            .filter(is_online=True)
-            .annotate(
-                availability_priority=Case(
-                    When(is_online=True, on_call=False, then=Value(1)),
-                    When(is_online=True, on_call=True, then=Value(2)),
-                    default=Value(3),
+             .annotate(
+                online_priority=Case(
+                    When(is_online=True, then=Value(1)),
+                    default=Value(0),
                     output_field=IntegerField()
                 )
             )
-            .order_by('availability_priority', '-created_at')
+            .order_by('-online_priority', '-created_at')
+            # .filter(is_online=True)
+            # .annotate(
+            #     availability_priority=Case(
+            #         When(is_online=True, on_call=False, then=Value(1)),
+            #         When(is_online=True, on_call=True, then=Value(2)),
+            #         default=Value(3),
+            #         output_field=IntegerField()
+            #     )
+            # )
+            # .order_by('availability_priority', '-created_at')
         )
 
         paginator = self.pagination_class()
