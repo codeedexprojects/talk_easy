@@ -335,6 +335,16 @@ class ExecutiveUpdateByIDAPIView(APIView):
             total_earnings=Coalesce(Sum('executive_earnings', filter=Q(status='ended')), Decimal('0.00'))
         )
 
+        # Today's earnings — filtered by today's date
+        today = timezone.now().date()
+        earnings_today = AgoraCallHistory.objects.filter(
+            executive=executive,
+            status='ended',
+            created_at__date=today
+        ).aggregate(
+            earnings_today=Coalesce(Sum('executive_earnings'), Decimal('0.00'))
+        )['earnings_today']
+
         avg_rating = Rating.objects.filter(executive=executive).aggregate(
             avg_rating=Avg('rating')
         )['avg_rating'] or 0.0
@@ -355,6 +365,7 @@ class ExecutiveUpdateByIDAPIView(APIView):
             "missed_calls": stats_data['missed_calls'],
             "total_call_minutes": total_call_minutes,
             "total_earnings": float(stats_data['total_earnings']),
+            "earnings_today": float(earnings_today),
             "average_rating": round(avg_rating, 1)
         })
 
