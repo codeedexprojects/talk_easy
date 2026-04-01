@@ -44,7 +44,6 @@ class JWTAuthMixin:
 
     @database_sync_to_async
     def get_user_by_id_jwt(self, user_id):
-
         try:
             return Executive.objects.get(id=user_id)
         except Executive.DoesNotExist:
@@ -56,7 +55,6 @@ class JWTAuthMixin:
 
 # -------------------- Custom Token Auth Mixin --------------------
 class CustomTokenAuthMixin:
-
 
     async def authenticate_token(self, token: str):
         try:
@@ -140,7 +138,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
 
         self.executive_id = str(self.user.executive_id)
         self.users_group_name = "users_online"
-        # ✅ Group name format: executive_<executive_id_code> — MUST match group_send in views.py
         self.private_group_name = f"executive_{self.executive_id}"
 
         await self.accept()
@@ -149,18 +146,18 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         await self.channel_layer.group_add(self.users_group_name, self.channel_name)
         await self.channel_layer.group_add(self.private_group_name, self.channel_name)
 
-        # Update in-memory and DB statuses
-        EXECUTIVE_STATUS[self.executive_id] = "online"
-        await self.update_executive_status("online")
+        db_status = await self.get_status_from_db()
+        EXECUTIVE_STATUS[self.executive_id] = db_status
+        await self.update_executive_status(db_status)
         await self.broadcast_status()
 
-        logger.info("[WS] Executive connected: %s (executive_id=%s, group=%s)",
-                    self.user.name, self.executive_id, self.private_group_name)
+        logger.info("[WS] Executive connected: %s (executive_id=%s, group=%s, restored_status=%s)",
+                    self.user.name, self.executive_id, self.private_group_name, db_status)
 
     async def disconnect(self, close_code):
         if hasattr(self, "executive_id"):
-            EXECUTIVE_STATUS[self.executive_id] = "offline"
-            await self.update_executive_status("offline")
+
+            EXECUTIVE_STATUS.pop(self.executive_id, None)
             await self.broadcast_status()
 
         if hasattr(self, "users_group_name"):
@@ -232,7 +229,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 payload = {
                     "type": "executive_response",
                     "executive_id": self.executive_id,
-                    "user_id": user_pk,     # communicate the pk, not the frontend value
+                    "user_id": user_pk,
                     "call_id": call_id,
                     "callee_id": callee_id,
                     "status": status,
@@ -256,7 +253,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                     }))
                     return
 
-                # acknowledge back to executive connection
                 await self.send(text_data=json.dumps({
                     "type": "executive_response_sent",
                     "to_user": user_pk,
@@ -265,7 +261,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 }))
                 return
 
-            # Unknown type - ignore or inform client
             await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
 
         except Exception as exc:
@@ -276,10 +271,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
     def get_user_id_from_call(self, call_id):
         """
         Resolve the real Django user PK from an AgoraCallHistory record.
-
-        The stored ``user_id`` column may contain a custom identifier; we look
-        up the corresponding UserProfile or Executive and return its primary
-        key.  If nothing can be found we return ``None`` and log a warning.
         """
         try:
             call = AgoraCallHistory.objects.only("id", "user_id").get(id=call_id)
@@ -290,16 +281,13 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 )
                 return None
 
-            # try both models and both id/user_id lookups
             for Model in (UserProfile, Executive):
-                # primary key match
                 try:
                     obj = Model.objects.get(id=raw)
                     return obj.id
                 except Model.DoesNotExist:
                     pass
 
-                # custom user_id field match
                 if hasattr(Model, "user_id"):
                     try:
                         obj = Model.objects.get(user_id=raw)
@@ -323,9 +311,22 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             return None
 
     @database_sync_to_async
+    def get_status_from_db(self):
+        try:
+            exec_obj = Executive.objects.get(executive_id=self.user.executive_id)
+            if exec_obj.on_call:
+                return "oncall"
+            elif exec_obj.is_online:
+                return "online"
+            else:
+                return "online"
+        except Executive.DoesNotExist:
+            return "online"
+
+    @database_sync_to_async
     def update_executive_status(self, status: str):
         try:
-            self.user.is_online = (status == "online")
+            self.user.is_online = (status in ["online", "oncall"])
             self.user.on_call = (status == "oncall")
             self.user.save(update_fields=['is_online', 'on_call'])
             logger.info("[WS] DB status updated for executive_id=%s: %s", self.user.executive_id, status)
@@ -339,26 +340,34 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             {"type": "status_update", "data": executive_data}
         )
 
+
     @database_sync_to_async
     def get_executives_detailed_status(self):
-
         result = []
-        for exec_id, status in EXECUTIVE_STATUS.items():
-            try:
-                exec_obj = Executive.objects.get(executive_id=exec_id)
+        try:
+            executives = Executive.objects.all()
+            for exec_obj in executives:
+                exec_id = str(exec_obj.executive_id)
+
+
+                if exec_id in EXECUTIVE_STATUS:
+                    status = EXECUTIVE_STATUS[exec_id]
+                else:
+                    if exec_obj.on_call:
+                        status = "oncall"
+                    elif exec_obj.is_online:
+                        status = "online"
+                    else:
+                        status = "offline"
+
                 result.append({
                     "executive_id": exec_id,
                     "name": exec_obj.name,
                     "status": status,
                     "is_available": status in ["online", "oncall"]
                 })
-            except Executive.DoesNotExist:
-                result.append({
-                    "executive_id": exec_id,
-                    "name": "Unknown Executive",
-                    "status": status,
-                    "is_available": False
-                })
+        except Exception as exc:
+            logger.error("[WS] Error fetching executive statuses: %s", exc, exc_info=True)
         return result
 
     async def status_update(self, event):
@@ -387,12 +396,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             await self.send(text_data=json.dumps(event))
         except Exception as exc:
             logger.error("[WS] Error in user_event handler: %s", exc, exc_info=True)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # ✅ FIX: Handlers for events sent via channel_layer.group_send() from
-    #         calls/views.py → CallInitiateView.send_incoming_call_notification
-    # The method name MUST exactly match the "type" field in the group_send payload.
-    # ─────────────────────────────────────────────────────────────────────────
 
     async def incoming_call(self, event):
         """Deliver incoming call notification to connected executive."""
@@ -440,26 +443,24 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
 # -------------------- UsersConsumer --------------------
 class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
 
-
     async def connect(self):
         headers = dict(self.scope.get('headers', []))
         raw_auth = headers.get(b'authorization', b'').decode()
         token = raw_auth.replace('Bearer ', '') if raw_auth else None
 
-        # fallback to query param
         if not token:
             query_string = self.scope.get('query_string', b'').decode()
             params = parse_qs(query_string)
             token = params.get('token', [None])[0]
 
         if not token:
-            print("DEBUG: Connect rejected: no JWT token")
+            logger.warning("[WS] UsersConsumer: connect rejected — no JWT token")
             await self.close(code=4001)
             return
 
         authenticated_user = await self.authenticate_jwt(token)
         if not authenticated_user:
-            print("DEBUG: JWT auth failed for user connection")
+            logger.warning("[WS] UsersConsumer: JWT auth failed")
             await self.close(code=4001)
             return
 
@@ -495,12 +496,10 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                     getattr(self, 'user', None) and getattr(self.user, 'id', 'unknown'), close_code)
 
     async def receive(self, text_data):
-
         try:
             data = json.loads(text_data)
             msg_type = data.get("type")
 
-            # User initiating a call to an executive
             if msg_type == "user_event":
                 executive_id = data.get("executive_id")
                 if not executive_id:
@@ -508,7 +507,7 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                     return
 
                 payload = {
-                    "type": "user_event",  # mapped to ExecutivesConsumer.user_event
+                    "type": "user_event",
                     "executive_id": executive_id,
                     "user_id": data.get("user_id", getattr(self.user, 'id', None)),
                     "call": data.get("call", False),
@@ -520,7 +519,6 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                 executive_group = f"executive_{executive_id}"
                 await self.channel_layer.group_send(executive_group, payload)
 
-                # Acknowledge to sender
                 await self.send(text_data=json.dumps({
                     "type": "user_event_sent",
                     "to_executive": executive_id,
@@ -529,33 +527,40 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                 }))
                 return
 
-            # Unknown message types can be handled or ignored
             await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
 
         except Exception as exc:
             logger.error("[WS] Error in UsersConsumer.receive: %s", exc, exc_info=True)
             await self.send(text_data=json.dumps({"error": str(exc)}))
 
+
     @database_sync_to_async
     def get_executives_detailed_status(self):
-
         result = []
-        for exec_id, status in EXECUTIVE_STATUS.items():
-            try:
-                exec_obj = Executive.objects.get(executive_id=exec_id)
+        try:
+            executives = Executive.objects.all()
+            for exec_obj in executives:
+                exec_id = str(exec_obj.executive_id)
+
+
+                if exec_id in EXECUTIVE_STATUS:
+                    status = EXECUTIVE_STATUS[exec_id]
+                else:
+                    if exec_obj.on_call:
+                        status = "oncall"
+                    elif exec_obj.is_online:
+                        status = "online"
+                    else:
+                        status = "offline"
+
                 result.append({
                     "executive_id": exec_id,
                     "name": exec_obj.name,
                     "status": status,
                     "is_available": status in ["online", "oncall"]
                 })
-            except Executive.DoesNotExist:
-                result.append({
-                    "executive_id": exec_id,
-                    "name": "Unknown Executive",
-                    "status": status,
-                    "is_available": False
-                })
+        except Exception as exc:
+            logger.error("[WS] Error fetching executive statuses: %s", exc, exc_info=True)
         return result
 
     async def executive_response(self, event):
@@ -574,7 +579,7 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
             logger.error("[WS] Error sending status_update to user: %s", exc, exc_info=True)
 
     async def incoming_call(self, event):
-        """Forward incoming call notification to user (if they are also in a user group)."""
+        """Forward incoming call notification to user."""
         try:
             await self.send(text_data=json.dumps({
                 "type": "incoming_call",
