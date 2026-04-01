@@ -23,6 +23,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
     ]
 
     executive_id = models.CharField(max_length=20, unique=True)
+    username = models.CharField(max_length=150, unique=True, null=True, blank=True)
     mobile_number = models.CharField(max_length=15, unique=True)
     name = models.CharField(max_length=100, default="Guest")
     age = models.PositiveIntegerField(default=18)

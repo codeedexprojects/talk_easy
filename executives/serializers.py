@@ -67,7 +67,7 @@ class ExecutiveSerializer(serializers.ModelSerializer):
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id', 'mobile_number', 'name', 'age', 'email_id', 'gender',
+            'id', 'executive_id', 'username', 'mobile_number', 'name', 'age', 'email_id', 'gender',
             'profession', 'skills', 'place', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
