@@ -156,8 +156,9 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
 
     async def disconnect(self, close_code):
         if hasattr(self, "executive_id"):
-
             EXECUTIVE_STATUS.pop(self.executive_id, None)
+            # FIX: Mark executive as offline in DB when they disconnect
+            await self.update_executive_status("offline")
             await self.broadcast_status()
 
         if hasattr(self, "users_group_name"):
@@ -172,6 +173,10 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         try:
             data = json.loads(text_data)
             msg_type = data.get("type")
+
+            # FIX: Support bare {"status": "..."} payloads sent without a "type" wrapper
+            if not msg_type and "status" in data:
+                msg_type = "status_update"
 
             # Exec status update
             if msg_type == "status_update":
@@ -340,7 +345,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             {"type": "status_update", "data": executive_data}
         )
 
-
     @database_sync_to_async
     def get_executives_detailed_status(self):
         result = []
@@ -348,7 +352,6 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
             executives = Executive.objects.all()
             for exec_obj in executives:
                 exec_id = str(exec_obj.executive_id)
-
 
                 if exec_id in EXECUTIVE_STATUS:
                     status = EXECUTIVE_STATUS[exec_id]
@@ -533,7 +536,6 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
             logger.error("[WS] Error in UsersConsumer.receive: %s", exc, exc_info=True)
             await self.send(text_data=json.dumps({"error": str(exc)}))
 
-
     @database_sync_to_async
     def get_executives_detailed_status(self):
         result = []
@@ -541,7 +543,6 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
             executives = Executive.objects.all()
             for exec_obj in executives:
                 exec_id = str(exec_obj.executive_id)
-
 
                 if exec_id in EXECUTIVE_STATUS:
                     status = EXECUTIVE_STATUS[exec_id]
