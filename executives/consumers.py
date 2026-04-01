@@ -158,7 +158,7 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         if hasattr(self, "executive_id"):
             # Set offline in memory BEFORE broadcast so status_list shows "offline"
             # (avoids falling back to stale DB value which still has is_online=True)
-            EXECUTIVE_STATUS[self.executive_id] = "offline"
+            EXECUTIVE_STATUS[self.executive_id] = ""
             await self.broadcast_status()
             EXECUTIVE_STATUS.pop(self.executive_id, None)
 
