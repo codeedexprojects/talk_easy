@@ -156,10 +156,11 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
 
     async def disconnect(self, close_code):
         if hasattr(self, "executive_id"):
-            EXECUTIVE_STATUS.pop(self.executive_id, None)
-            # FIX: Mark executive as offline in DB when they disconnect
-            await self.update_executive_status("offline")
+            # Set offline in memory BEFORE broadcast so status_list shows "offline"
+            # (avoids falling back to stale DB value which still has is_online=True)
+            EXECUTIVE_STATUS[self.executive_id] = "offline"
             await self.broadcast_status()
+            EXECUTIVE_STATUS.pop(self.executive_id, None)
 
         if hasattr(self, "users_group_name"):
             await self.channel_layer.group_discard(self.users_group_name, self.channel_name)
@@ -331,10 +332,14 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
     @database_sync_to_async
     def update_executive_status(self, status: str):
         try:
-            self.user.is_online = (status in ["online", "oncall"])
-            self.user.on_call = (status == "oncall")
-            self.user.save(update_fields=['is_online', 'on_call'])
+            # Always fetch a fresh object from DB — never rely on stale self.user
+            exec_obj = Executive.objects.get(executive_id=self.user.executive_id)
+            exec_obj.is_online = (status in ["online", "oncall"])
+            exec_obj.on_call = (status == "oncall")
+            exec_obj.save(update_fields=['is_online', 'on_call'])
             logger.info("[WS] DB status updated for executive_id=%s: %s", self.user.executive_id, status)
+        except Executive.DoesNotExist:
+            logger.warning("[WS] update_executive_status: executive_id=%s not found in DB", self.user.executive_id)
         except Exception as exc:
             logger.error("[WS] Error updating executive DB status: %s", exc, exc_info=True)
 
