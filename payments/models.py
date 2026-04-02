@@ -24,7 +24,9 @@ class RechargePlan(models.Model):
     is_deleted = models.BooleanField(default=False)
 
     def calculate_final_price(self):
-        return self.base_price - (self.base_price * Decimal(self.discount_percentage / 100))
+        # return self.base_price - (self.base_price * Decimal(self.discount_percentage / 100))
+        # Discount only adds bonus coins — the plan amount is always the base_price unchanged
+        return self.base_price
 
     def get_adjusted_coin_package(self):
         bonus_percentage = Decimal(self.discount_percentage) / 100
