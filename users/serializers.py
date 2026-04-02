@@ -52,7 +52,7 @@ class ExecutiveFavoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id', 'name', 'age', 'gender',
+            'id', 'executive_id', 'username', 'name', 'age', 'gender',
             'profession', 'skills', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned',
             'created_at','is_offline','is_online'
@@ -141,7 +141,7 @@ class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id', 'name',
+            'id', 'executive_id', 'username', 'name',
             'status', 'is_offline', 'is_online', 'on_call',
             'is_favourite', 'profile_photo',
         ]
@@ -175,7 +175,7 @@ class Executivelistserializer(serializers.ModelSerializer):
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id', 'mobile_number', 'name', 'age', 'email_id', 'gender',
+            'id', 'executive_id', 'username', 'mobile_number', 'name', 'age', 'email_id', 'gender',
             'profession', 'skills', 'place', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',

@@ -257,6 +257,7 @@ class ExecutiveDetailSerializer(serializers.ModelSerializer):
         model = Executive
         fields = [
             "id",
+            "username",
             "name",
             "is_online",
             "on_call",
