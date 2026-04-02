@@ -94,14 +94,35 @@ def send_fcm_notification(token, title, body, data=None):
         for key, value in data.items():
             safe_data[str(key)] = str(value)
 
-    message = messaging.Message(
-        notification=messaging.Notification(
-            title=str(title),
-            body=str(body),
-        ),
-        data=safe_data,
-        token=token,
-    )
+    is_incoming_call = data and str(data.get("type", "")) == "incoming_call"
+
+    if is_incoming_call:
+        import datetime
+        # Data-only message with high priority for VoIP / Background Call processing
+        message = messaging.Message(
+            data=safe_data,
+            token=token,
+            android=messaging.AndroidConfig(
+                priority='high',
+                ttl=datetime.timedelta(seconds=30)
+            ),
+            apns=messaging.APNSConfig(
+                headers={
+                    'apns-priority': '10',
+                    'apns-expiration': '0'
+                }
+            )
+        )
+    else:
+        # Standard notification message
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=str(title) if title else "",
+                body=str(body) if body else "",
+            ),
+            data=safe_data,
+            token=token,
+        )
 
     try:
         response = messaging.send(message)

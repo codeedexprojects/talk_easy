@@ -110,11 +110,16 @@ class CallInitiateView(APIView):
             if executive.fcm_token:
                 fcm_title = "talkeazy"
                 fcm_body = f"New call from {getattr(user, 'user_id', 'Unknown')}"
+                avatar_url = ""
+                if user.dp_image:
+                    avatar_url = request.build_absolute_uri(user.dp_image.url)
+
                 fcm_data = {
-                    "call_id": call_history.id,
-                    "caller_name": str(getattr(user, "user_id", "Unknown")),
                     "type": "incoming_call",
-                    "avatar": "",
+                    "call_id": str(call_history.id),
+                    "caller_name": str(user.name or getattr(user, "user_id", "Unknown")),
+                    "caller_number": str(getattr(user, "mobile_number", "") or "Unknown"),
+                    "avatar": avatar_url,
                     "channel_name": str(call_history.channel_name),
                     "token": str(call_history.executive_token),
                     "agorauserid": str(call_history.callee_uid)
