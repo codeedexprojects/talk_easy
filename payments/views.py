@@ -643,9 +643,6 @@ class UserRechargeListView(APIView):
         if start_date and end_date:
             recharges = recharges.filter(created_at__range=[start_date, end_date])
 
-        if not recharges.exists():
-            return Response({"message": "No recharge records found."}, status=status.HTTP_404_NOT_FOUND)
-
         paginator = CustomUserPagination()
         paginated_qs = paginator.paginate_queryset(recharges, request)
         serializer = UserRechargeSerializer(paginated_qs, many=True)
