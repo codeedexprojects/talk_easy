@@ -67,7 +67,8 @@ def generate_executive_id():
 from rest_framework.exceptions import ValidationError
 
 class RegisterExecutiveView(generics.CreateAPIView):
-    permission_classes = []
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
     queryset = Executive.objects.all()
     serializer_class = ExecutiveSerializer
 
