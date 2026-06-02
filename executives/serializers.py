@@ -34,6 +34,7 @@ class ExecutiveLoginSerializer(serializers.Serializer):
 class ExecutiveLoginSerializer(serializers.Serializer):
     mobile_number = serializers.CharField()
     password = serializers.CharField()
+    
 
 class ExecutiveOTPVerifySerializer(serializers.Serializer):
     mobile_number = serializers.CharField()
@@ -61,18 +62,25 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         queryset=Language.objects.all(),
         required=False
     )
+    coins_per_second = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id', 'mobile_number', 'name', 'age', 'email_id', 'gender',
+            'id', 'executive_id', 'username', 'mobile_number', 'name', 'age', 'email_id', 'gender',
             'profession', 'skills', 'place', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
-            'on_call', 'password', 'languages_known'
+            'on_call', 'password', 'languages_known', 'coins_per_second'
         ]
         read_only_fields = ['id', 'created_at', 'last_login']
+
+    def get_coins_per_second(self, obj):
+        """Get coins_per_second from ExecutiveStats"""
+        if hasattr(obj, 'stats'):
+            return obj.stats.coins_per_second
+        return None
 
     def create(self, validated_data):
         languages = validated_data.pop("languages_known", [])
@@ -249,6 +257,7 @@ class ExecutiveDetailSerializer(serializers.ModelSerializer):
         model = Executive
         fields = [
             "id",
+            "username",
             "name",
             "is_online",
             "on_call",
@@ -256,3 +265,42 @@ class ExecutiveDetailSerializer(serializers.ModelSerializer):
             "is_suspended",
             "stats",
         ]
+
+class BlockedUsersSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    executive_name = serializers.CharField(source='executive.name', read_only=True)
+    executive_id = serializers.CharField(source='executive.executive_id',read_only=True)
+    user_id = serializers.CharField(source='user.user_id', read_only=True)
+    class Meta:
+        model = BlockedusersByExecutive
+        fields = [
+            'id',
+            'user',
+            'user_name',
+            'executive',
+            'executive_name',
+            'is_blocked',
+            'reason',
+            'blocked_at',
+            'executive_id',
+            'user_id'
+        ]
+
+
+# Pricing Serializers
+
+class GlobalPricingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GlobalPricing
+        fields = ['id', 'default_amount_per_min', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class RateScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RateSchedule
+        fields = [
+            'id', 'name', 'amount_per_min', 'start_time', 'end_time',
+            'days_of_week', 'active', 'priority', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

@@ -4,11 +4,12 @@ from rest_framework.response import Response
 from rest_framework import status
 from users.authentication import UserProfileJWTAuthentication
 from users.models import  ReferralCode, ReferralHistory, DeletedUser,UserProfile
-from executives.utils import send_otp
+from executives.utils import send_otp, is_test_number
 from rest_framework.permissions import IsAuthenticated,AllowAny
 from users.serializers import *
 from rest_framework_simplejwt.tokens import RefreshToken
-
+from executives.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser   
 
 class UserProfileRefreshToken(RefreshToken):
     @classmethod
@@ -44,6 +45,21 @@ class RegisterOrLoginView(APIView):
                     'is_banned': True,
                     'is_existing_user': True
                 }, status=status.HTTP_403_FORBIDDEN)
+
+            # ✅ Test login shortcut (bypass SMS OTP)
+            if is_test_number(mobile_number):
+                otp = "123456"
+                user.otp = otp
+                user.save(update_fields=['otp'])
+                return Response({
+                    'message': 'Test login: OTP sent successfully (static for testing).',
+                    'user_id': user.id,
+                    'mobile_number': user.mobile_number,
+                    'otp': user.otp,
+                    'status': True,
+                    'is_existing_user': True,
+                    'user_main_id': user.user_id,
+                }, status=status.HTTP_200_OK)
 
             # Send OTP
             try:
@@ -87,14 +103,18 @@ class RegisterOrLoginView(APIView):
             is_deleted_user = DeletedUser.objects.filter(mobile_number=mobile_number).exists()
             initial_coin_balance = 0 if is_deleted_user else 1000
 
-            # Send OTP
-            try:
-                send_otp(mobile_number, otp)
-            except Exception as e:
-                return Response({
-                    'message': 'Failed to send OTP. Please try again later.',
-                    'error': str(e)
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # ✅ Test registration shortcut
+            if is_test_number(mobile_number):
+                otp = "123456"
+            else:
+                # Send OTP
+                try:
+                    send_otp(mobile_number, otp)
+                except Exception as e:
+                    return Response({
+                        'message': 'Failed to send OTP. Please try again later.',
+                        'error': str(e)
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             # Create new user
             user = UserProfile.objects.create(
@@ -153,7 +173,12 @@ class VerifyOTPView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            user = UserProfile.objects.get(mobile_number=mobile_number, otp=otp)
+            # ✅ Test verification shortcut
+            if is_test_number(mobile_number) and otp == "123456":
+                user = UserProfile.objects.get(mobile_number=mobile_number)
+            else:
+                user = UserProfile.objects.get(mobile_number=mobile_number, otp=otp)
+            
             is_existing_user = user.is_verified
             
             user.otp = None
@@ -294,19 +319,39 @@ from executives.serializers import *
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from accounts.pagination import CustomUserPagination
+from django.db.models import Case, When, Value, IntegerField
 
 class ExecutiveListAPIView(APIView):
     permission_classes = [IsAuthenticated]
     pagination_class = CustomUserPagination
 
     def get(self, request):
-        executives = Executive.objects.all().order_by('-created_at')
+        executives = (
+            Executive.objects
+             .annotate(
+                online_priority=Case(
+                    When(is_online=True, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField()
+                )
+            )
+            .order_by('-online_priority', '-created_at')
+            # .filter(is_online=True)
+            # .annotate(
+            #     availability_priority=Case(
+            #         When(is_online=True, on_call=False, then=Value(1)),
+            #         When(is_online=True, on_call=True, then=Value(2)),
+            #         default=Value(3),
+            #         output_field=IntegerField()
+            #     )
+            # )
+            # .order_by('availability_priority', '-created_at')
+        )
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(executives, request, view=self)
 
         serializer = Executivelistserializer(page, many=True, context={'request': request})
-
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
@@ -316,18 +361,16 @@ class ExecutiveListAPIView(APIView):
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
                 "executives_group",
-                {
-                    "type": "send_executives_list"
-                }
+                {"type": "send_executives_list"}
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
-
+from rest_framework.permissions import IsAdminUser
 class UpdateUserStatusAPIView(APIView):
-    permission_classes = [IsAuthenticated] 
+    permission_classes = [IsAdminUser] 
     authentication_classes = [JWTAuthentication]
 
     def patch(self, request, user_id):
@@ -344,13 +387,14 @@ class UpdateUserStatusAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response({"detail": "User status updated successfully.", "status": True}, status=status.HTTP_200_OK)
+        
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 from django.shortcuts import get_object_or_404
 
 class RatingExecutiveView(APIView):
-    permission_classes = []
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, executive_id, *args, **kwargs):
         executive = get_object_or_404(Executive, id=executive_id)
@@ -450,7 +494,8 @@ class CareerDetailView(APIView):
         return Response({"message": "Career entry deleted successfully."}, status=status.HTTP_200_OK)
     
 class CarouselImageListCreateView(APIView):
-    permission_classes=[]
+    permission_classes=[IsAdminUser]
+    authentication_classes=[JWTAuthentication]
     def get(self, request):
         images = CarouselImage.objects.all()
         serializer = CarouselImageSerializer(images, many=True, context={'request': request})
@@ -492,7 +537,7 @@ class CarouselImageDetailView(APIView):
         except CarouselImage.DoesNotExist:
             return Response({'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
 
-from rest_framework.permissions import IsAdminUser    
+ 
 class ReferralHistoryListView(APIView):
     permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
@@ -507,6 +552,8 @@ from accounts.pagination import CustomUserPagination
 from rest_framework import generics
 
 class UserProfileListView(ListAPIView):
+    permission_classes=[IsAdminUser]
+    authentication_classes=[JWTAuthentication]
     queryset = UserProfile.objects.filter(is_deleted=False).order_by('-created_at')
     serializer_class = UserProfileSerializerAdmin
     pagination_class = CustomUserPagination
@@ -785,8 +832,169 @@ class UserDeletionStatsView(APIView):
             "deleted_users": deleted_users,
             "recent_deletions": recent_deletions,
             "monthly_deletions": monthly_deletions,
+
             "deletion_rate": round((deleted_users / total_users * 100) if total_users > 0 else 0, 2)
         }, status=status.HTTP_200_OK)
+
+
+class ReportCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data.copy()
+        
+        # Determine reporter
+        if hasattr(request.user, 'role') and 'manager' in request.user.role: # Admin user
+             return Response({"error": "Admins cannot create reports this way."}, status=status.HTTP_403_FORBIDDEN)
+        
+        if isinstance(request.user, UserProfile):
+            data['reporter_user'] = request.user.id
+        elif isinstance(request.user, Executive):
+            data['reporter_executive'] = request.user.id
+        else:
+            pass
+
+        serializer = ReportSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+from django.db.models import Count, Sum, Q
+from payments.models import UserRecharge
+from calls.models import AgoraCallHistory
+
+class AdminReportListUpdateAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    pagination_class = CustomUserPagination
+
+    def get(self, request):
+        status_filter = request.query_params.get('status')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        users_qs = UserProfile.objects.all()
+        execs_qs = Executive.objects.all()
+        payments_qs = UserRecharge.objects.all()
+        calls_qs = AgoraCallHistory.objects.all()
+        
+        reports_qs = Report.objects.select_related(
+            'reporter_user', 'reporter_executive', 
+            'reported_user', 'reported_executive'
+        ).order_by('-created_at')
+
+        if start_date:
+            users_qs = users_qs.filter(created_at__date__gte=start_date)
+            execs_qs = execs_qs.filter(created_at__date__gte=start_date)
+            payments_qs = payments_qs.filter(created_at__date__gte=start_date)
+            calls_qs = calls_qs.filter(start_time__date__gte=start_date)
+            reports_qs = reports_qs.filter(created_at__date__gte=start_date)
+        
+        if end_date:
+            users_qs = users_qs.filter(created_at__date__lte=end_date)
+            execs_qs = execs_qs.filter(created_at__date__lte=end_date)
+            payments_qs = payments_qs.filter(created_at__date__lte=end_date)
+            calls_qs = calls_qs.filter(start_time__date__lte=end_date)
+            reports_qs = reports_qs.filter(created_at__date__lte=end_date)
+
+        user_stats = users_qs.aggregate(
+            total=Count('id'),
+            active=Count('id', filter=Q(is_active=True, is_banned=False, is_suspended=False)),
+            banned=Count('id', filter=Q(is_banned=True)),
+            suspended=Count('id', filter=Q(is_suspended=True))
+        )
+
+        exec_stats = execs_qs.aggregate(
+            total=Count('id'),
+            active=Count('id', filter=Q(status='active')),
+            inactive=Count('id', filter=Q(status='inactive'))
+        )
+        
+        payment_stats = payments_qs.aggregate(
+            total_transactions=Count('id'),
+            total_amount=Sum('amount_paid', filter=Q(is_successful=True)),
+            successful=Count('id', filter=Q(is_successful=True)),
+            failed=Count('id', filter=Q(is_successful=False))
+        )
+        
+        call_stats = calls_qs.aggregate(
+            total_calls=Count('id'),
+            completed=Count('id', filter=Q(status='ended')),
+            missed=Count('id', filter=Q(status='missed')),
+            cancelled=Count('id', filter=Q(status='cancelled'))
+        )
+        
+        summary = {
+            "executives": {
+                "total": exec_stats['total'] or 0,
+                "active": exec_stats['active'] or 0,
+                "inactive": exec_stats['inactive'] or 0
+            },
+            "users": {
+                "total": user_stats['total'] or 0,
+                "active": user_stats['active'] or 0,
+                "banned": user_stats['banned'] or 0,
+                "suspended": user_stats['suspended'] or 0
+            },
+            "payments": {
+                "total_transactions": payment_stats['total_transactions'] or 0,
+                "total_amount": payment_stats['total_amount'] or 0.0,
+                "successful": payment_stats['successful'] or 0,
+                "failed": payment_stats['failed'] or 0
+            },
+            "calls": {
+                "total_calls": call_stats['total_calls'] or 0,
+                "completed": call_stats['completed'] or 0,
+                "missed": call_stats['missed'] or 0,
+                "cancelled": call_stats['cancelled'] or 0
+            }
+        }
+
+        if status_filter:
+            reports_qs = reports_qs.filter(status=status_filter)
+            
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(reports_qs, request)
+        serializer = ReportSerializer(page, many=True)
+        paginated_response = paginator.get_paginated_response(serializer.data)
+
+        return Response({
+            "summary": summary,
+            "reports": paginated_response.data
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        try:
+            report = Report.objects.get(pk=pk)
+        except Report.DoesNotExist:
+            return Response({"error": "Report not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+        status_val = request.data.get('status')
+        if status_val not in ['pending', 'resolved', 'dismissed']:
+             return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+             
+        report.status = status_val
+        report.save()
+        return Response({"message": "Report status updated", "status": report.status}, status=status.HTTP_200_OK)
+
+class AdminReviewListUpdateAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        ratings = Rating.objects.all().order_by('-created_at')
+        serializer = RatingSerializer(ratings, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        try:
+            rating = Rating.objects.get(pk=pk)
+            rating.delete()
+            return Response({"message": "Rating deleted"}, status=status.HTTP_204_NO_CONTENT)
+        except Rating.DoesNotExist:
+            return Response({"error": "Rating not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 class UserAccountStatusView(APIView):
@@ -913,3 +1121,136 @@ class CarouselImageListAPIView(APIView):
             for img in images
         ]
         return Response({"carousel_images": data}, status=status.HTTP_200_OK)
+    
+class BannedUserListView(ListAPIView):
+    queryset = UserProfile.objects.filter(is_banned=True, is_deleted=False).order_by('-created_at')
+    serializer_class = BannedUserSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+    pagination_class = CustomUserPagination 
+
+class FilteredUserListView(APIView):
+    permission_classes = []  
+    authentication_classes=[]
+
+    def get(self, request):
+        status = request.query_params.get("status")
+
+        if status == "banned":
+            users = UserProfile.objects.filter(is_banned=True)
+        elif status == "suspended":
+            users = UserProfile.objects.filter(is_suspended=True)
+        elif status == "active":
+            users = UserProfile.objects.filter(is_banned=False, is_suspended=False, is_active=True)
+        else:
+            return Response({"error": "Invalid or missing 'status' parameter. Use 'banned', 'suspended', or 'active'."}, status=400)
+
+        serializer = UserProfileSerializer(users, many=True)
+        return Response(serializer.data)
+    
+
+class UserSpecificRatingsView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]
+    def get(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        ratings = Rating.objects.filter(user=user).select_related('user', 'executive').order_by('-created_at')
+        serializer = RatingSerializer(ratings, many=True)
+        return Response(serializer.data)
+    
+
+class UserSearchView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request):
+        query = request.query_params.get("q", "").strip()
+        status_filter = request.query_params.get("status", "").strip().lower()
+
+        users = UserProfile.objects.all()
+
+        if query:
+            users = users.filter(
+                Q(name__icontains=query)
+                | Q(email__icontains=query)
+                | Q(mobile_number__icontains=query)
+                | Q(user_id__icontains=query)
+            )
+
+        if status_filter == "banned":
+            users = users.filter(is_banned=True)
+        elif status_filter == "suspended":
+            users = users.filter(is_suspended=True)
+        elif status_filter == "active":
+            users = users.filter(is_active=True, is_banned=False, is_suspended=False, is_deleted=False)
+        elif status_filter == "deleted":
+            users = users.filter(is_deleted=True)
+        elif status_filter:
+            return Response(
+                {"error": "Invalid status filter. Use 'banned', 'suspended', 'active', or 'deleted'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        users = users.order_by("-created_at")
+
+        if not users.exists():
+            return Response({"message": "No users found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = UserProfileSerializer(users, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    
+class UserAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes=[JWTAuthentication]
+
+    def get(self, request):
+        try:
+            total_users = UserProfile.objects.count()
+            active_users = UserProfile.objects.filter(is_active=True).count()
+            banned_users = UserProfile.objects.filter(is_banned=True).count()
+            suspended_users = UserProfile.objects.filter(is_suspended=True).count()
+
+            data = {
+                "total_users": total_users,
+                "active_users": active_users,
+                "banned_users": banned_users,
+                "suspended_users": suspended_users,
+            }
+
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+class RatingListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        executive_id = request.query_params.get('executive_id')
+        user_id = request.query_params.get('user_id')
+
+        ratings = Rating.objects.all().select_related('user', 'executive')
+
+        if executive_id:
+            ratings = ratings.filter(executive_id=executive_id)
+        if user_id:
+            ratings = ratings.filter(user_id=user_id)
+
+        if not ratings.exists():
+            return Response(
+                {"message": "No ratings found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        paginator = CustomUserPagination()
+        paginated_ratings = paginator.paginate_queryset(ratings, request)
+        serializer = RatingSerializer(paginated_ratings, many=True)
+
+        return paginator.get_paginated_response(serializer.data)

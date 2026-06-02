@@ -32,7 +32,19 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 class UserStatusUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ['is_suspended', 'is_banned']  
+        fields = ['is_suspended', 'is_banned']
+
+    def update(self, instance, validated_data):
+        instance.is_suspended = validated_data.get('is_suspended', instance.is_suspended)
+        instance.is_banned = validated_data.get('is_banned', instance.is_banned)
+
+        if instance.is_banned or instance.is_suspended:
+            instance.is_active = False
+        else:
+            instance.is_active = True
+
+        instance.save()
+        return instance
 
 from executives.models import Executive
 class ExecutiveFavoSerializer(serializers.ModelSerializer):
@@ -40,7 +52,7 @@ class ExecutiveFavoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id', 'name', 'age', 'gender',
+            'id', 'executive_id', 'username', 'name', 'age', 'gender',
             'profession', 'skills', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned',
             'created_at','is_offline','is_online'
@@ -51,15 +63,13 @@ class RatingSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     username = serializers.CharField(source='user.name', read_only=True)
     UID = serializers.CharField(source='user.user_id', read_only=True)
-    id = serializers.IntegerField(source='executive.id', read_only=True)
+    executive_id = serializers.IntegerField(source='executive.id', read_only=True)
     executive_name = serializers.CharField(source='executive.name', read_only=True)
-    EXID = serializers.CharField(source='executive.executive_id', read_only=True)   
-
-
+    EXID = serializers.CharField(source='executive.executive_id', read_only=True)
 
     class Meta:
         model = Rating
-        fields = ['user_id', 'username','UID', 'id', 'executive_name','EXID', 'rating', 'comment', 'created_at']
+        fields = ['id', 'user_id', 'username', 'UID', 'executive_id', 'executive_name', 'EXID', 'rating', 'comment', 'created_at']
 
 class CareerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -126,13 +136,14 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
 
 class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
     is_favourite = serializers.SerializerMethodField()
+    profile_photo = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id','name',
-            'status','is_offline', 'is_online', 'on_call',
-            'is_favourite',  
+            'id', 'executive_id', 'username', 'name',
+            'status', 'is_offline', 'is_online', 'on_call',
+            'is_favourite', 'profile_photo',
         ]
 
     def get_is_favourite(self, obj):
@@ -141,23 +152,36 @@ class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
             return Favourite.objects.filter(user=request.user, executive=obj).exists()
         return False
 
+    def get_profile_photo(self, obj):
+        try:
+            profile = obj.executiveprofilepicture
+            request = self.context.get('request')
+            if profile.profile_photo:
+                if request is not None:
+                    return request.build_absolute_uri(profile.profile_photo.url)
+                return profile.profile_photo.url
+        except ExecutiveProfilePicture.DoesNotExist:
+            return None
+
+
 
 class Executivelistserializer(serializers.ModelSerializer):
     languages_known = serializers.SlugRelatedField(many=True, slug_field='name', read_only=True)
     is_favourite = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
+    coins_per_second = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
         fields = [
-            'id', 'executive_id', 'mobile_number', 'name', 'age', 'email_id', 'gender',
+            'id', 'executive_id', 'username', 'mobile_number', 'name', 'age', 'email_id', 'gender',
             'profession', 'skills', 'place', 'education_qualification', 'status',
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
             'on_call', 'languages_known', 'is_favourite',
-            'profile_photo_url','average_rating'
+            'profile_photo_url','average_rating', 'coins_per_second'
         ]
         read_only_fields = ['id', 'created_at', 'last_login', 'stats', 'is_favourite']
 
@@ -183,3 +207,75 @@ class Executivelistserializer(serializers.ModelSerializer):
     def get_average_rating(self, obj):
             avg_rating = Rating.objects.filter(executive=obj).aggregate(Avg("rating"))["rating__avg"]
             return round(avg_rating, 1) if avg_rating else None
+
+    def get_coins_per_second(self, obj):
+        if hasattr(obj, 'stats'):
+            return obj.stats.coins_per_second
+        return None
+
+
+class BannedUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "id",
+            "user_id",
+            "name",
+            "email",
+            "mobile_number",
+            "is_banned",
+            "created_at",
+        ]
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "id",
+            "user_id",
+            "name",
+            "email",
+            "mobile_number",
+            "gender",
+            "is_verified",
+            "is_active",
+            "is_banned",
+            "created_at",
+        ]
+
+class ReportSerializer(serializers.ModelSerializer):
+    reporter_user_details = serializers.SerializerMethodField()
+    reporter_executive_details = serializers.SerializerMethodField()
+    reported_user_details = serializers.SerializerMethodField()
+    reported_executive_details = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Report
+        fields = [
+            'id', 'reporter_user', 'reporter_executive', 
+            'reported_user', 'reported_executive',
+            'reporter_user_details', 'reporter_executive_details',
+            'reported_user_details', 'reported_executive_details',
+            'reason', 'description', 'status', 'created_at', 'evidence'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def get_reporter_user_details(self, obj):
+        if obj.reporter_user:
+            return {'id': obj.reporter_user.id, 'name': obj.reporter_user.name, 'user_id': obj.reporter_user.user_id}
+        return None
+
+    def get_reporter_executive_details(self, obj):
+        if obj.reporter_executive:
+            return {'id': obj.reporter_executive.id, 'name': obj.reporter_executive.name, 'executive_id': obj.reporter_executive.executive_id}
+        return None
+
+    def get_reported_user_details(self, obj):
+        if obj.reported_user:
+            return {'id': obj.reported_user.id, 'name': obj.reported_user.name, 'user_id': obj.reported_user.user_id}
+        return None
+
+    def get_reported_executive_details(self, obj):
+        if obj.reported_executive:
+            return {'id': obj.reported_executive.id, 'name': obj.reported_executive.name, 'executive_id': obj.reported_executive.executive_id}
+        return None

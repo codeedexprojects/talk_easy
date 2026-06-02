@@ -9,10 +9,15 @@ class Admin(AbstractBaseUser, PermissionsMixin):
     name = models.CharField(max_length=100)
     mobile_number = models.CharField(max_length=15, unique=True, null=True)
 
-    otp = models.CharField(max_length=6, null=True, blank=True)
+    # OTP fields — otp_hash stores SHA-256 of the 6-digit OTP (never plaintext)
+    otp = models.CharField(max_length=6, null=True, blank=True)       # deprecated, kept for backward compat
+    otp_hash = models.CharField(max_length=128, null=True, blank=True) # secure: SHA-256 hashed OTP
     otp_created_at = models.DateTimeField(null=True, blank=True)
-    otp_attempts = models.PositiveSmallIntegerField(default=0)
-    otp_verified_at = models.DateTimeField(blank=True, null=True)
+    otp_attempts = models.PositiveSmallIntegerField(default=0)          # counts wrong attempts per OTP session
+    otp_verified_at = models.DateTimeField(blank=True, null=True)       # set when OTP verified successfully
+
+    # Profile picture
+    profile_picture = models.ImageField(upload_to='admin_profiles/', null=True, blank=True)
 
     is_staff = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
@@ -23,8 +28,7 @@ class Admin(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = [
         ('hr_user', 'HR - User'),
         ('hr_executive', 'HR - Executive'),
-        ('manager_user', 'Manager - User'),
-        ('manager_executive', 'Manager - Executive'),
+        ('manager', 'Manager'),
         ('superuser', 'Superuser'),
         ('other', 'Other')
     ]
@@ -32,11 +36,33 @@ class Admin(AbstractBaseUser, PermissionsMixin):
 
     groups = models.ManyToManyField(Group, related_name='admin_groups', blank=True)
     user_permissions = models.ManyToManyField(Permission, related_name='admin_permissions', blank=True)
+    custom_permissions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Stores specific functions or access privileges this admin can use"
+    )
 
     objects = AdminManager()
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['name']
+
+    @property
+    def is_manager(self):
+        """True if this admin has the unified 'manager' role."""
+        return self.role == 'manager'
+
+    @property
+    def is_manager_executive(self):
+        """True if manager with executive-level permissions (set in custom_permissions)."""
+        return self.is_manager and isinstance(self.custom_permissions, dict) and \
+               self.custom_permissions.get('manager_level') == 'executive'
+
+    @property
+    def is_manager_user(self):
+        """True if manager with user-level permissions (set in custom_permissions)."""
+        return self.is_manager and isinstance(self.custom_permissions, dict) and \
+               self.custom_permissions.get('manager_level') == 'user'
 
     def __str__(self):
         return f"{self.name} ({self.email})"
@@ -74,3 +100,26 @@ class AdminSession(models.Model):
         self.is_active = False
         self.logout_time = timezone.now()
         self.save(update_fields=['is_active', 'logout_time'])
+
+
+class AdminOTP(models.Model):
+    """
+    Stores hashed OTP records for admin phone-based password reset.
+    One active record per phone number — old records are replaced on re-request.
+    """
+    phone       = models.CharField(max_length=20, db_index=True)
+    otp_hash    = models.CharField(max_length=128)          # SHA-256 of the 6-digit OTP
+    expires_at  = models.DateTimeField()                    # now + 5 minutes
+    attempts    = models.PositiveSmallIntegerField(default=0)
+    is_verified = models.BooleanField(default=False)
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Admin OTP'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"OTP({self.phone}, verified={self.is_verified})"
+
+    def is_expired(self) -> bool:
+        return timezone.now() > self.expires_at

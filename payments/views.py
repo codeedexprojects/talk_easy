@@ -8,6 +8,10 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from executives.authentication import ExecutiveTokenAuthentication
 from django.utils.timezone import now
 from rest_framework.permissions import IsAdminUser
+import razorpay
+from django.conf import settings
+from accounts.pagination import *
+from executives.permissions import IsAdminUser
 
 
 #  Category Create & List
@@ -72,6 +76,11 @@ class RechargePlanDeleteAPIView(APIView):
 
 from rest_framework import status, permissions
 from payments.models import UserRecharge
+from .services import RazorpayService
+from .exceptions import PaymentException
+import logging
+
+logger = logging.getLogger('payments')
 
 class RechargePlansView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -82,39 +91,204 @@ class RechargePlansView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+razorpay_client = razorpay.Client(
+    auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+)
+
 class UserRechargeView(APIView):
+    """
+    API endpoint to initiate a recharge for a user
+    Creates Razorpay order and UserRecharge record
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         user = request.user
         plan_id = request.data.get("plan_id")
 
+        if not plan_id:
+            return Response(
+                {"error": "plan_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         try:
             plan = RechargePlan.objects.get(id=plan_id, is_active=True, is_deleted=False)
         except RechargePlan.DoesNotExist:
-            return Response({"error": "Invalid recharge plan"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid or inactive recharge plan"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        coins_to_add = plan.get_adjusted_coin_package()
-        amount_to_pay = plan.calculate_final_price()
-
-        recharge = UserRecharge.objects.create(
-            user=user,
-            plan=plan,
-            coins_added=coins_to_add,
-            amount_paid=amount_to_pay,
-            is_successful=True  
-        )
-
-        return Response({
-            "message": "Recharge successful",
-            "coins_added": coins_to_add,
-            "amount_paid": float(amount_to_pay),
-            "current_coin_balance": user.stats.coin_balance
-        }, status=status.HTTP_200_OK)
+        try:
+            # Use service layer to create order
+            order_data = RazorpayService.create_order(user, plan)
+            
+            return Response({
+                "message": "Razorpay order created successfully",
+                **order_data
+            }, status=status.HTTP_200_OK)
+            
+        except PaymentException as e:
+            logger.error(f"Payment error for user {user.id}: {str(e)}")
+            return Response(
+                {
+                    "error": str(e),
+                    "error_type": "PaymentException"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in recharge initiation: {type(e).__name__} - {str(e)}", exc_info=True)
+            
+            # In DEBUG mode, provide detailed error for debugging
+            error_response = {"error": "Failed to create payment order. Please try again."}
+            if settings.DEBUG:
+                error_response["error_details"] = str(e)
+                error_response["error_type"] = type(e).__name__
+                
+            return Response(
+                error_response,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
 
+import hmac
+import hashlib
+
+class VerifyRechargePaymentView(APIView):
+    """
+    API endpoint to verify payment after user completes Razorpay checkout
+    Verifies signature and updates recharge status
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        razorpay_order_id = request.data.get("razorpay_order_id")
+        razorpay_payment_id = request.data.get("razorpay_payment_id")
+        razorpay_signature = request.data.get("razorpay_signature")
+
+        if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+            return Response(
+                {"error": "Missing required payment details"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Use service layer to process payment
+            from .exceptions import (
+                InvalidSignatureException,
+                OrderNotFoundException,
+                PaymentAlreadyProcessedException
+            )
+            
+            result = RazorpayService.process_successful_payment(
+                razorpay_order_id,
+                razorpay_payment_id,
+                razorpay_signature
+            )
+            
+            return Response(result, status=status.HTTP_200_OK)
+            
+        except InvalidSignatureException as e:
+            logger.warning(f"Invalid signature for order {razorpay_order_id}")
+            return Response(
+                {"error": "Payment verification failed. Invalid signature."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except OrderNotFoundException as e:
+            logger.error(f"Order not found: {razorpay_order_id}")
+            return Response(
+                {"error": "Recharge order not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except PaymentAlreadyProcessedException as e:
+            # Return success for idempotency
+            try:
+                recharge = UserRecharge.objects.get(razorpay_order_id=razorpay_order_id)
+                return Response({
+                    "message": "Payment already processed",
+                    "coins_added": recharge.coins_added,
+                    "amount_paid": float(recharge.amount_paid),
+                    "current_coin_balance": recharge.user.stats.coin_balance
+                }, status=status.HTTP_200_OK)
+            except UserRecharge.DoesNotExist:
+                return Response(
+                    {"error": "Payment already processed but details not found"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        except Exception as e:
+            logger.error(f"Payment verification error: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Payment verification failed. Please contact support."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class RazorpayWebhookView(APIView):
+    """
+    Webhook endpoint for Razorpay payment events
+    
+    Handles:
+    - payment.captured: Payment successful
+    - payment.failed: Payment failed
+    - order.paid: Order completed
+    """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        # Get webhook signature
+        signature = request.headers.get('X-Razorpay-Signature')
+        if not signature:
+            logger.warning("Webhook received without signature")
+            return Response(
+                {"error": "Missing signature"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get raw request body for signature verification
+        webhook_body = request.body.decode('utf-8')
+        
+        # Verify signature
+        if not RazorpayService.verify_webhook_signature(webhook_body, signature):
+            logger.warning("Webhook signature verification failed")
+            return Response(
+                {"error": "Invalid signature"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Extract event details
+        payload = request.data
+        event_type = payload.get('event')
+        
+        if not event_type:
+            logger.error("Webhook received without event type")
+            return Response(
+                {"error": "Missing event type"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        logger.info(f"Processing webhook event: {event_type}")
+        
+        try:
+            # Process webhook using service layer
+            from .services import PaymentWebhookService
+            PaymentWebhookService.handle_webhook(event_type, payload)
+            
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Webhook processing failed: {str(e)}", exc_info=True)
+            # Return 200 to prevent Razorpay from retrying
+            # Error is logged for manual investigation
+            return Response({"status": "error", "message": str(e)}, status=status.HTTP_200_OK)
+
+
 class RedemptionOptionListCreateAPIView(APIView):
-    permission_classes=[]
+    permission_classes=[IsAdminUser]
+    authentication_classes=[JWTAuthentication]
 
     def get(self, request):
         options = RedemptionOption.objects.filter(is_deleted=False)
@@ -130,6 +304,8 @@ class RedemptionOptionListCreateAPIView(APIView):
 
 
 class RedemptionOptionDetailAPIView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
 
     def get_object(self, pk):
         try:
@@ -265,7 +441,6 @@ class AdminRedeemListUpdateAPIView(APIView):
         if serializer.is_valid():
             redeem = serializer.save()
 
-            # If status changed to approved or paid → set processed_at
             if redeem.status in ["approved", "rejected", "paid"]:
                 redeem.processed_at = now()
                 redeem.save()
@@ -273,3 +448,203 @@ class AdminRedeemListUpdateAPIView(APIView):
             return Response(AdminRedeemManageSerializer(redeem).data)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class UserRechargeHistoryViewAdmin(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]  
+
+    def get(self, request, user_id):
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        recharges = UserRecharge.objects.filter(user=user).order_by('-created_at')
+        serializer = UserRechargeSerializer(recharges, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class UserRechargeHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+
+            recharges = UserRecharge.objects.filter(user=user).order_by('-created_at')
+            serializer = UserRechargeSerializer(recharges, many=True)
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error fetching recharge history: {type(e).__name__} - {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Failed to fetch recharge history"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+from rest_framework import status
+from django.db import transaction
+
+class AdminRechargeView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        user_id = request.data.get("user_id")
+        plan_id = request.data.get("plan_id")
+        coins_to_add = request.data.get("coins_added")
+        amount_paid = request.data.get("amount_paid")
+
+        if not user_id:
+            return Response({"error": "user_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch user instance
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        plan = None
+        if plan_id:
+            try:
+                plan = RechargePlan.objects.get(id=plan_id)
+                coins_to_add = plan.get_adjusted_coin_package() if coins_to_add is None else coins_to_add
+                amount_paid = plan.calculate_final_price() if amount_paid is None else amount_paid
+            except RechargePlan.DoesNotExist:
+                return Response({"error": "Recharge plan not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Validate coins and amount
+        if coins_to_add is None or amount_paid is None:
+            return Response({"error": "coins_added and amount_paid are required if no plan_id is provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Convert to proper types
+        try:
+            coins_to_add = int(coins_to_add)
+            amount_paid = float(amount_paid)
+        except ValueError:
+            return Response({"error": "Invalid coins_added or amount_paid value."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use a transaction to safely update stats using select_for_update
+        try:
+            with transaction.atomic():
+                # Lock the stats row
+                stats = None
+                if hasattr(user, "stats"):
+                    stats = type(user.stats).objects.select_for_update().get(pk=user.stats.pk)
+
+                # Create the recharge
+                recharge = UserRecharge.objects.create(
+                    user=user,
+                    plan=plan,
+                    coins_added=coins_to_add,
+                    amount_paid=amount_paid,
+                    is_successful=True,
+                    by_admin=True,
+                    payment_status="successful",
+                )
+
+                # Update user coin balance specifically
+                if stats:
+                    import logging
+                    logger = logging.getLogger("payments")
+                    old_balance = stats.coin_balance
+                    stats.coin_balance += coins_to_add
+                    stats.save(update_fields=["coin_balance"])
+                    logger.info(f"Admin Recharge: User {user.id} balance changed from {old_balance} to {stats.coin_balance} by adding {coins_to_add}")
+
+            return Response({
+                "message": f"Recharge successful for user {user.name or user.user_id}",
+                "coins_added": coins_to_add,
+                "amount_paid": amount_paid,
+                "current_coin_balance": stats.coin_balance if stats else 0,
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger("payments")
+            logger.error(f"Error during admin recharge for user {user.id}: {str(e)}")
+            return Response({"error": "Failed to process recharge securely."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+from django.utils import timezone
+from django.db.models import Sum
+
+
+class RechargeAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        try:
+            today = timezone.now().date()
+
+            successful_user_recharges = UserRecharge.objects.filter(
+                is_successful=True,
+                by_admin=False
+            )
+
+            today_stats = successful_user_recharges.filter(
+                created_at__date=today
+            ).aggregate(
+                today_coins=Sum('coins_added'),
+                today_revenue=Sum('amount_paid')
+            )
+            today_coin_sales = today_stats['today_coins'] or 0
+            today_revenue = float(today_stats['today_revenue'] or 0)
+
+            total_coin_sales = successful_user_recharges.aggregate(
+                total_coins=Sum('coins_added')
+            )['total_coins'] or 0
+
+            total_revenue = float(successful_user_recharges.aggregate(
+                total_amount=Sum('amount_paid')
+            )['total_amount'] or 0)
+
+            admin_recharges = UserRecharge.objects.filter(
+                is_successful=True,
+                by_admin=True
+            )
+
+            admin_spent_amount = float(admin_recharges.aggregate(
+                total_amount=Sum('amount_paid')
+            )['total_amount'] or 0)
+
+            admin_coins_spent = admin_recharges.aggregate(
+                total_coins=Sum('coins_added')
+            )['total_coins'] or 0
+
+            data = {
+                "today_coin_sales": today_coin_sales,
+                "today_revenue": today_revenue,
+                "total_coin_sales": total_coin_sales,
+                "total_revenue": total_revenue,
+                "admin_spent_amount": admin_spent_amount,
+                "admin_coins_spent": admin_coins_spent
+            }
+
+            return Response(data, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+        
+class UserRechargeListView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        user_id = request.query_params.get("user_id")
+        status_filter = request.query_params.get("status")
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        recharges = UserRecharge.objects.select_related("user", "plan").order_by("-created_at")
+
+        if user_id:
+            recharges = recharges.filter(user__id=user_id)
+        if status_filter:
+            recharges = recharges.filter(payment_status=status_filter)
+        if start_date and end_date:
+            recharges = recharges.filter(created_at__range=[start_date, end_date])
+
+        paginator = CustomUserPagination()
+        paginated_qs = paginator.paginate_queryset(recharges, request)
+        serializer = UserRechargeSerializer(paginated_qs, many=True)
+
+        return paginator.get_paginated_response(serializer.data)

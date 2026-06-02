@@ -3,7 +3,10 @@ import django
 from django.core.asgi import get_asgi_application
 
 # Must be set first
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "talkeasy.settings")
+os.environ.setdefault(
+    'DJANGO_SETTINGS_MODULE',
+    'talkeasy.settings.production'
+)
 
 # Initialize Django before importing other modules
 django.setup()

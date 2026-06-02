@@ -59,6 +59,7 @@ class UserProfile(models.Model):
     is_deleted = models.BooleanField(default=False)
     is_online = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    fcm_token = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     PREFIX = "TUR"  
@@ -221,3 +222,29 @@ class CarouselImage(models.Model):
 
     def __str__(self):
         return self.title
+
+class Report(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('resolved', 'Resolved'),
+        ('dismissed', 'Dismissed'),
+    ]
+
+    reporter_user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, null=True, blank=True, related_name='reports_made')
+    reporter_executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE, null=True, blank=True, related_name='reports_made')
+    
+    reported_user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, null=True, blank=True, related_name='reports_against')
+    reported_executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE, null=True, blank=True, related_name='reports_against')
+    
+    reason = models.TextField()
+    description = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    evidence = models.ImageField(upload_to='report_evidence/', null=True, blank=True)
+
+    def __str__(self):
+        reporter = self.reporter_user or self.reporter_executive
+        reported = self.reported_user or self.reported_executive
+        return f"Report {self.id}: {reporter} -> {reported} ({self.status})"

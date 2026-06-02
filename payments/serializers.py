@@ -46,10 +46,27 @@ class RechargePlanSerializer(serializers.ModelSerializer):
         return obj.category_id.name if obj.category_id else None
     
 class UserRechargeSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    user_id = serializers.CharField(source='user.user_id', read_only=True)
+    plan_name = serializers.CharField(source='plan.plan_name', read_only=True)
+
     class Meta:
         model = UserRecharge
-        fields = ["id", "user", "plan", "coins_added", "amount_paid", "created_at", "is_successful"]
-        read_only_fields = ["coins_added", "amount_paid", "created_at"]
+        fields = [
+            'id',
+            'user_id',
+            'user_name',
+            'plan_name',
+            'coins_added',
+            'amount_paid',
+            'payment_status',
+            'is_successful',
+            'by_admin',
+            'razorpay_order_id',
+            'razorpay_payment_id',
+            'created_at',
+            'updated_at'
+        ]
 
 
 class RedemptionOptionSerializer(serializers.ModelSerializer):

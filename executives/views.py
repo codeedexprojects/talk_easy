@@ -3,7 +3,13 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from django.db.models import Max
 from .models import Executive, ExecutiveStats
+from django.db.models import Count, Sum, Avg, Q
+from django.db.models.functions import Coalesce
+from decimal import Decimal
+import logging
 from .serializers import *
+
+logger = logging.getLogger(__name__)
 import re
 from django.contrib.auth import authenticate
 import random
@@ -17,6 +23,9 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.parsers import MultiPartParser, FormParser
 from executives.authentication import ExecutiveTokenAuthentication
+from executives.utils import send_otp, is_test_number
+import uuid
+from datetime import timedelta
 
 
 
@@ -93,7 +102,7 @@ class RegisterExecutiveView(generics.CreateAPIView):
         )
 
 
-
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from django.core.cache import cache
 class ExecutiveLoginView(APIView):
@@ -109,6 +118,24 @@ class ExecutiveLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Test login shortcut (bypass password check)
+        if is_test_number(mobile_number):
+            otp = "123456"  # fixed OTP for testing
+            executive, created = Executive.objects.get_or_create(
+                mobile_number=mobile_number,
+                defaults={"name": "Test Executive", "is_verified": True}
+            )
+            executive.otp = otp
+            executive.is_verified = True
+            executive.save(update_fields=["otp", "is_verified"])
+
+            return Response({
+                "message": "Test login: OTP sent successfully (static for testing).",
+                "status": True,
+                "otp": otp
+            }, status=status.HTTP_200_OK)
+
+        # Regular flow
         try:
             executive = Executive.objects.get(mobile_number=mobile_number)
         except Executive.DoesNotExist:
@@ -116,12 +143,6 @@ class ExecutiveLoginView(APIView):
 
         if not check_password(password, executive.password):
             return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        if executive.online and not executive.is_logged_out:
-            return Response(
-                {"message": "Already logged in on another device. Please logout first."},
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         if executive.is_suspended or executive.is_banned:
             return Response(
@@ -137,7 +158,7 @@ class ExecutiveLoginView(APIView):
 
         otp = str(random.randint(100000, 999999))
         executive.otp = otp
-        executive.is_verified = True 
+        executive.is_verified = True
         executive.save(update_fields=["otp", "is_verified"])
 
         if not send_otp(mobile_number, otp):
@@ -146,12 +167,9 @@ class ExecutiveLoginView(APIView):
         return Response({
             "message": "Password verified. OTP sent to your mobile. Please verify to complete login.",
             "status": True,
-            "otp":executive.otp
+            "otp": otp
         }, status=status.HTTP_200_OK)
 
-
-
-from rest_framework_simplejwt.tokens import RefreshToken
 
 class ExecutiveVerifyOTPView(APIView):
     permission_classes = []
@@ -159,32 +177,93 @@ class ExecutiveVerifyOTPView(APIView):
     def post(self, request):
         mobile_number = request.data.get("mobile_number")
         otp = request.data.get("otp")
+        fcm_token = request.data.get("fcm_token")
 
         try:
             executive = Executive.objects.get(mobile_number=mobile_number)
         except Executive.DoesNotExist:
-            return Response({"message": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"message": "Executive not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if is_test_number(mobile_number) and otp == "123456":
+            ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
+                revoked=True, revoked_at=timezone.now()
+            )
+
+            access_token = str(uuid.uuid4())
+            refresh_token = str(uuid.uuid4())
+            expires_at = timezone.now() + timedelta(days=7)
+
+            new_token = ExecutiveToken.objects.create(
+                executive=executive,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=expires_at
+            )
+
+            executive.online = True
+            executive.is_logged_out = False
+            executive.is_verified = True
+
+            if fcm_token:
+                executive.fcm_token = fcm_token  
+            executive.save()  
+
+            return Response({
+                "message": "Test login successful (bypassed OTP verification).",
+                "executive_id": executive.executive_id,
+                "id": executive.id,
+                "fcm_token": executive.fcm_token,
+                "name": executive.name,
+                "access_token": new_token.access_token,
+                "refresh_token": new_token.refresh_token,
+                "expires_at": new_token.expires_at
+            }, status=status.HTTP_200_OK)
 
         if not executive.otp or str(executive.otp) != str(otp):
-            return Response({"message": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Invalid OTP"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
+            revoked=True, revoked_at=timezone.now()
+        )
+
+        access_token = str(uuid.uuid4())
+        refresh_token = str(uuid.uuid4())
+        expires_at = timezone.now() + timedelta(days=7)
+
+        new_token = ExecutiveToken.objects.create(
+            executive=executive,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at
+        )
 
         executive.otp = None
-        executive.is_verified = True
         executive.online = True
         executive.is_logged_out = False
-        executive.save(update_fields=["otp", "is_verified", "online", "is_logged_out"])
+        executive.is_verified = True
 
-        token_obj = ExecutiveToken.generate(executive)
+        if fcm_token:
+            executive.fcm_token = fcm_token  
+
+        executive.save()  
 
         return Response({
             "message": "OTP verified successfully",
-            "executive_id":executive.executive_id,
-            "id":executive.id,
-            "name":executive.name,
-            "access_token": token_obj.access_token,
-            "refresh_token": token_obj.refresh_token,
-            "expires_at": token_obj.expires_at
+            "executive_id": executive.executive_id,
+            "id": executive.id,
+            "fcm_token": executive.fcm_token,
+            "name": executive.name,
+            "access_token": new_token.access_token,
+            "refresh_token": new_token.refresh_token,
+            "expires_at": new_token.expires_at
         }, status=status.HTTP_200_OK)
+
     
 
 from rest_framework.permissions import IsAuthenticated
@@ -235,13 +314,56 @@ class ExecutiveUpdateByIDAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, id):
+        if request.user.id != id:
+            return Response({"detail": "Not authorized to access this profile."}, status=status.HTTP_403_FORBIDDEN)
+
         try:
             executive = Executive.objects.get(id=id)
         except Executive.DoesNotExist:
             return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Import locally to avoid circular dependencies if any
+        from calls.models import AgoraCallHistory
+        from users.models import Rating
+
+        # Dynamic Aggregation for precision
+        stats_data = AgoraCallHistory.objects.filter(executive=executive).aggregate(
+            total_calls=Count('id'),
+            completed_calls=Count('id', filter=Q(status='ended')),
+            missed_calls=Count('id', filter=Q(status='missed')),
+            total_duration_seconds=Coalesce(Sum('duration_seconds', filter=Q(status='ended')), 0),
+            total_earnings=Coalesce(Sum('executive_earnings', filter=Q(status='ended')), Decimal('0.00'))
+        )
+
+        # earnings_today — uses ExecutiveStats which auto-resets each day
+        exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
+        earnings_today = exec_stats.current_earnings_today  # resets to 0 if new day
+
+        avg_rating = Rating.objects.filter(executive=executive).aggregate(
+            avg_rating=Avg('rating')
+        )['avg_rating'] or 0.0
+
+        total_call_minutes = round(stats_data['total_duration_seconds'] / 60, 2)
+
+        # Logging for debug
+        logger.info(f"Aggregated stats for Executive {id}: {stats_data}, Avg Rating: {avg_rating}")
+
+        # Basic executive data from serializer
         serializer = ExecutiveSerializer(executive)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        data = serializer.data
+
+        # Update data with aggregated stats
+        data.update({
+            "total_calls": stats_data['total_calls'],
+            "completed_calls": stats_data['completed_calls'],
+            "missed_calls": stats_data['missed_calls'],
+            "total_call_minutes": total_call_minutes,
+            "total_earnings": float(stats_data['total_earnings']),
+            "earnings_today": float(earnings_today),
+            "average_rating": round(avg_rating, 1)
+        })
+
+        return Response(data, status=status.HTTP_200_OK)
 
     def put(self, request, id):
         return self.update_executive(request, id)
@@ -250,6 +372,9 @@ class ExecutiveUpdateByIDAPIView(APIView):
         return self.update_executive(request, id, partial=True)
 
     def update_executive(self, request, id, partial=False):
+        if request.user.id != id:
+            return Response({"detail": "Not authorized to update this profile."}, status=status.HTTP_403_FORBIDDEN)
+
         try:
             executive = Executive.objects.get(id=id)
         except Executive.DoesNotExist:
@@ -285,6 +410,19 @@ class AdminUpdateExecutiveAPIView(APIView):
 
     def patch(self, request, id):
         return self.update_executive(request, id, partial=True)
+
+    def delete(self, request, id):
+        user = request.user
+        if not getattr(user, 'is_staff', False) and not getattr(user, 'is_superuser', False):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            executive = Executive.objects.get(id=id)
+        except Executive.DoesNotExist:
+            return Response({"detail": "Executive not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        executive.delete()
+        return Response({"detail": "Executive deleted successfully.", "status": True}, status=status.HTTP_200_OK)
 
     def update_executive(self, request, id, partial=False):
         user = request.user
@@ -801,3 +939,111 @@ class BlockedUsersListByExecutiveAPIView(APIView):
             "total_blocked": blocked_users.count(),
             "blocked_users": serializer.data
         }, status=status.HTTP_200_OK)
+    
+
+class AllBlockedUsersListView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes=[JWTAuthentication]
+
+    def get(self, request):
+        blocked_users = BlockedusersByExecutive.objects.filter(is_blocked=True).select_related('user', 'executive')
+        serializer = BlockedUsersSerializer(blocked_users, many=True)
+        return Response(serializer.data)
+    
+
+class ExecutiveSearchView(APIView):
+    permission_classes = [IsAdminUser]
+    authentication_classes=[JWTAuthentication]  
+
+    def get(self, request):
+        query = request.query_params.get('query', '').strip()
+
+        if not query:
+            return Response({"error": "Please provide a search query."}, status=status.HTTP_400_BAD_REQUEST)
+
+        executives = Executive.objects.filter(
+            Q(executive_id__icontains=query) |
+            Q(name__icontains=query) |
+            Q(mobile_number__icontains=query) |
+            Q(email_id__icontains=query) |
+            Q(profession__icontains=query) |
+            Q(place__icontains=query)
+        ).order_by('name')
+
+        serializer = ExecutiveSerializer(executives, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+class ExecutiveAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]  
+    authentication_classes =[JWTAuthentication]
+
+    def get(self, request):
+        try:
+            today = timezone.now()
+            ten_days_ago = today - timedelta(days=10)
+
+            total_executives = Executive.objects.count()
+            online_executives = Executive.objects.filter(is_online=True).count()
+            banned_executives = Executive.objects.filter(is_banned=True).count()
+            active_executives = Executive.objects.filter(online=True).count()
+            suspended_executives = Executive.objects.filter(is_suspended=True).count()
+            recent_executives = Executive.objects.filter(created_at__gte=ten_days_ago).count()
+
+            data = {
+                "total_executives": total_executives,
+                "online_executives": online_executives,
+                "active_executives":active_executives,
+                "banned_executives": banned_executives,
+                "suspended_executives": suspended_executives,
+                "recently_joined_last_10_days": recent_executives,
+            }
+
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# Pricing Management Views (Admin Only)
+
+class GlobalPricingView(generics.RetrieveUpdateAPIView):
+    """
+    Admin view to manage global default pricing.
+    GET: Retrieve current global pricing
+    PUT/PATCH: Update global pricing
+    """
+    queryset = GlobalPricing.objects.all()
+    serializer_class = GlobalPricingSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    
+    def get_object(self):
+        # Always return the first (and should be only) GlobalPricing instance
+        obj, created = GlobalPricing.objects.get_or_create(
+            defaults={'default_amount_per_min': Decimal('2.0')}
+        )
+        return obj
+
+
+class RateScheduleListCreateView(generics.ListCreateAPIView):
+    """
+    Admin view to list and create rate schedules.
+    """
+    queryset = RateSchedule.objects.all()
+    serializer_class = RateScheduleSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+    ordering = ['-priority', 'name']
+
+
+class RateScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Admin view to retrieve, update, or delete a specific rate schedule.
+    """
+    queryset = RateSchedule.objects.all()
+    serializer_class = RateScheduleSerializer
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]

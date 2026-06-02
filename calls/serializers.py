@@ -60,6 +60,10 @@ class CallInitiateSerializer(serializers.Serializer):
     executive_id = serializers.IntegerField(required=True)
     channel_name = serializers.CharField(required=True)
     caller_uid = serializers.IntegerField(required=True)
+    
+
+
+
 
 class CallRatingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -71,17 +75,43 @@ class CallRatingSerializer(serializers.ModelSerializer):
 class CallHistorySerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.name", read_only=True)
     executive_name = serializers.CharField(source="executive.name", read_only=True)
+    exe_username = serializers.CharField(source="executive.username", read_only=True)
     user_id = serializers.CharField(source="user.user_id", read_only=True)
     executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
     is_blocked = serializers.SerializerMethodField()
+    start_time = serializers.SerializerMethodField()
+    end_time = serializers.SerializerMethodField()
+    duration = serializers.SerializerMethodField()
+    calling_time = serializers.SerializerMethodField()
 
     class Meta:
         model = AgoraCallHistory
         fields = [
-            "id", "channel_name", "status", "start_time", "end_time",
-            "duration_seconds", "coins_deducted", "executive_earnings",
-            "user_name", "executive_name",'user','user_id','executive','executive_id','is_blocked'
+            "id", "channel_name", "status", "start_time", "end_time","token","executive_token",
+            "duration", "calling_time",
+            "duration_seconds", "coins_deducted", "executive_earnings","callee_uid",
+            "user_name", "executive_name", "exe_username", "user","user_id","executive","executive_id","is_blocked"
         ]
+
+    def get_start_time(self, obj):
+        if obj.start_time:
+            kolkata = pytz.timezone("Asia/Kolkata")
+            return localtime(obj.start_time, kolkata).strftime("%I:%M %p %d-%m-%Y")
+        return None
+
+    def get_end_time(self, obj):
+        if obj.end_time:
+            kolkata = pytz.timezone("Asia/Kolkata")
+            return localtime(obj.end_time, kolkata).strftime("%I:%M %p %d-%m-%Y")
+        return None
+
+    def get_duration(self, obj):
+        mins, secs = divmod(obj.duration_seconds or 0, 60)
+        return f"{mins:02d}:{secs:02d}"
+
+    def get_calling_time(self, obj):
+        mins, secs = divmod(obj.duration_seconds or 0, 60)
+        return f"{mins:02d}:{secs:02d}"
 
     def get_is_blocked(self, obj):
         from executives.models import BlockedusersByExecutive  
@@ -89,3 +119,72 @@ class CallHistorySerializer(serializers.ModelSerializer):
             user=obj.user, executive=obj.executive, is_blocked=True
         ).first()
         return bool(blocked_entry)
+    
+class AgoraCallHistorySerializer(serializers.ModelSerializer):
+    user_id = serializers.CharField(source="user.user_id", read_only=True)
+    executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
+
+    class Meta:
+        model = AgoraCallHistory
+        fields = [
+            "id",
+            "channel_name",
+            "uid",
+            "callee_uid",
+            "executive_token",
+            "token",
+            "status",
+            "is_active",
+            "start_time",
+            "joined_at",
+            "end_time",
+            "duration_seconds",
+            "coins_deducted",
+            "executive_earnings",
+            "coins_per_second",
+            "amount_per_min",
+            "user_id",
+            "executive_id",
+            "ended_by",
+            "end_request_id",
+        ]
+
+
+class OngoingCallHistorySerializer(serializers.ModelSerializer):
+    user_id = serializers.CharField(source="user.user_id", read_only=True)
+    executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
+    duration = serializers.SerializerMethodField()
+    user = serializers.IntegerField(source="user.id", read_only=True)
+    executive = serializers.IntegerField(source="executive.id", read_only=True)
+
+    class Meta:
+        model = AgoraCallHistory
+        fields = [
+            "id",
+            "channel_name",
+            "uid",
+            "callee_uid",
+            "executive_token",
+            "token",
+            "status",
+            "is_active",
+            "start_time",
+            "joined_at",
+            "end_time",
+            "duration_seconds",
+            "duration",
+            "coins_deducted",
+            "executive_earnings",
+            "coins_per_second",
+            "amount_per_min",
+            "user_id",
+            "executive_id",
+            "user",
+            "executive",
+            "ended_by",
+            "end_request_id",
+        ]
+
+    def get_duration(self, obj):
+        mins, secs = divmod(obj.duration_seconds or 0, 60)
+        return f"{mins:02d}:{secs:02d}"

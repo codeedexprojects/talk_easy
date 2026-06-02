@@ -22,10 +22,17 @@ urlpatterns = [
     path("executive-call-history/", ExecutiveCallHistoryListAPIView.as_view(), name="executive-call-history"), #executive list
     path("executives-recent-calls/<int:executive_id>/", RecentExecutiveCallsAPIView.as_view(), name="recent-calls-executive"),
 
+    path("call-status/<int:pk>/", CallDetailAPIView.as_view(), name="call-detail"),
+
     path('calls/<int:call_id>/end/user/', UserEndCallView.as_view(), name='user-end-call'),
     path('calls/<int:call_id>/end/executive/', ExecutiveEndCallView.as_view(), name='executive-end-call'),
     path("admin/user-call-history/<int:user_id>/", AdminUserCallHistoryAPIView.as_view(),name="admin-user-call-history",),
     path("admin/executive-call-history/<int:executive_id>/",AdminExecutiveCallHistoryAPIView.as_view(),name="admin-executive-call-history"),
-]
+    path('analytics/', CallAnalyticsView.as_view(), name='call-analytics'),
+    path("leave_joined/", LeaveJoinedCallsView.as_view(), name="leave-joined-calls"),
+    path('ongoing/', OngoingCallsView.as_view(), name='ongoing-calls'),
+    path('monitor/<int:call_id>/', GenerateMonitorTokenView.as_view(), name='generate-monitor-token'),
+    path('stop-monitor//<int:call_id>/', StopMonitoringView.as_view(), name='stop-monitoring'),
 
+]
 
