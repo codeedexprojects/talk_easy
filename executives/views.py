@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 from executives.models import *
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.permissions import IsAdminUser
+from executives.permissions import IsAdminUser
 # For admin-specific views
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -67,8 +67,7 @@ def generate_executive_id():
 from rest_framework.exceptions import ValidationError
 
 class RegisterExecutiveView(generics.CreateAPIView):
-    permission_classes = [IsAdminUser]
-    authentication_classes = [JWTAuthentication]
+    permission_classes = []
     queryset = Executive.objects.all()
     serializer_class = ExecutiveSerializer
 
