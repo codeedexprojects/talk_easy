@@ -192,9 +192,9 @@ class Executivelistserializer(serializers.ModelSerializer):
     def get_profile_photo_url(self, obj):
         request = self.context.get('request')
 
-        # Get latest uploaded profile picture regardless of status
+        # Only expose the photo once admin has approved it
         profile_pic = ExecutiveProfilePicture.objects.filter(
-            executive=obj
+            executive=obj, status='approved'
         ).order_by("-created_at").first()
 
         if profile_pic and profile_pic.profile_photo:

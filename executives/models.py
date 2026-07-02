@@ -297,7 +297,7 @@ class ExecutiveProfilePicture(models.Model):
         ('rejected', 'Rejected'),
     ]
 
-    executive = models.OneToOneField(Executive, on_delete=models.CASCADE)
+    executive = models.ForeignKey(Executive, on_delete=models.CASCADE, related_name='profile_pictures')
     profile_photo = models.ImageField(upload_to='executive_pictures/')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)

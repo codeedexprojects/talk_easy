@@ -1,6 +1,9 @@
+import logging
 import random
 from django.conf import settings
 import requests
+
+logger = logging.getLogger(__name__)
 
 def send_otp(mobile_number, otp):
     try:
@@ -8,9 +11,34 @@ def send_otp(mobile_number, otp):
             "https://2factor.in/API/V1/{}/SMS/{}/{}".format(settings.TWO_FACTOR_API_KEY, mobile_number, otp),
             timeout=5  # Timeout to avoid long waits
         )
-        return response.status_code == 200
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        logger.error("2Factor OTP request failed for %s: %s", mobile_number, exc)
         return False
+
+    if response.status_code != 200:
+        logger.error(
+            "2Factor OTP send failed for %s: HTTP %s - %s",
+            mobile_number, response.status_code, response.text,
+        )
+        return False
+
+    # 2Factor returns HTTP 200 even on logical failures (bad key, low
+    # balance, invalid number, blocked route) - the real result is in
+    # the JSON body's "Status" field.
+    try:
+        data = response.json()
+    except ValueError:
+        logger.error("2Factor OTP response not JSON for %s: %s", mobile_number, response.text)
+        return False
+
+    if data.get("Status") != "Success":
+        logger.error(
+            "2Factor OTP send failed for %s: %s",
+            mobile_number, data.get("Details", data),
+        )
+        return False
+
+    return True
 
 
 def normalize_phone_number(mobile_number):
