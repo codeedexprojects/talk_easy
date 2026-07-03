@@ -1,8 +1,12 @@
+import time
+
 from django.core.management.base import BaseCommand
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from calls.models import AgoraCallHistory
+
+MAX_CONSECUTIVE_FAILURES = 5
 
 
 class Command(BaseCommand):
@@ -12,8 +16,14 @@ class Command(BaseCommand):
         "the call row and the executive's on_call flag don't stay stuck "
         "forever. Relies on the client sending periodic {'type':'heartbeat', "
         "'call_id':...} pings while joined (every ~5-8s recommended) to keep "
-        "last_heartbeat fresh. Intended to be run frequently (e.g. every "
-        "10-15s via cron) so detection latency stays close to --stale-after."
+        "last_heartbeat fresh, and/or the Agora channel presence API (ground "
+        "truth) if AGORA_CUSTOMER_ID/SECRET are configured.\n\n"
+        "Run with --loop for continuous polling within a single long-lived "
+        "process (e.g. under PM2) — this avoids paying Django's startup cost "
+        "on every cycle, unlike re-invoking this command from cron/a shell "
+        "loop every few seconds. After 5 consecutive failed cycles, the "
+        "process exits non-zero so the process manager's restart/alerting "
+        "surfaces the problem instead of retrying a broken run forever."
     )
 
     def add_arguments(self, parser):
@@ -45,8 +55,49 @@ class Command(BaseCommand):
             help="Skip the Agora channel presence check (ground-truth, requires "
                  "AGORA_CUSTOMER_ID/SECRET) and rely only on heartbeat/timeout logic.",
         )
+        parser.add_argument(
+            "--loop",
+            action="store_true",
+            help="Run continuously in this process instead of exiting after one pass.",
+        )
+        parser.add_argument(
+            "--interval",
+            type=int,
+            default=5,
+            help="Seconds to sleep between passes when --loop is set (default: 5).",
+        )
 
     def handle(self, *args, **options):
+        if options["loop"]:
+            self._run_loop(options)
+        else:
+            self._run_once(options)
+
+    def _run_loop(self, options):
+        interval = options["interval"]
+        self.stdout.write(f"[end_stale_calls] loop starting, interval={interval}s")
+        consecutive_failures = 0
+
+        while True:
+            try:
+                self._run_once(options)
+                consecutive_failures = 0
+            except Exception as exc:
+                consecutive_failures += 1
+                self.stderr.write(
+                    f"[end_stale_calls] cycle failed ({consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}): {exc}"
+                )
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    self.stderr.write(
+                        "[end_stale_calls] too many consecutive failures, exiting "
+                        "so the process manager can restart/alert instead of "
+                        "retrying a broken run forever."
+                    )
+                    raise SystemExit(1)
+
+            time.sleep(interval)
+
+    def _run_once(self, options):
         stale_after = options["stale_after"]
         no_heartbeat_fallback = options["no_heartbeat_fallback"]
         ringing_timeout = options["ringing_timeout"]
