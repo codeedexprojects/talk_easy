@@ -207,6 +207,30 @@ class AgoraCallHistory(models.Model):
             call.end_time = timezone.now()
             call.save()
 
+    @staticmethod
+    def end_stale_ongoing_calls(stale_after_seconds=90):
+        """Force-end calls stuck in 'joined' whose last heartbeat is stale.
+
+        Covers app crashes / network drops where neither the client nor the
+        Agora webhook ever sends an end signal, so the call and the
+        executive's on_call flag would otherwise stay stuck forever.
+        """
+        cutoff = timezone.now() - timedelta(seconds=stale_after_seconds)
+        stale_call_ids = AgoraCallHistory.objects.filter(
+            status="joined",
+            is_active=True,
+        ).filter(
+            models.Q(last_heartbeat__lte=cutoff) |
+            models.Q(last_heartbeat__isnull=True, joined_at__lte=cutoff)
+        ).values_list("id", flat=True)
+
+        ended = []
+        for call_id in stale_call_ids:
+            call = AgoraCallHistory.objects.get(id=call_id)
+            call.end_call(ender="system_timeout")
+            ended.append(call_id)
+        return ended
+
 
 class CallRating(models.Model):
     executive = models.ForeignKey('executives.Executive', on_delete=models.CASCADE, related_name="call_ratings")
