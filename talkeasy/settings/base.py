@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'channels',
     'calls',
     'payments',
+    'notifications',
     'rest_framework',
 ]
 

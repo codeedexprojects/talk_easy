@@ -593,7 +593,7 @@ class UserEndCallView(APIView):
             except AgoraCallHistory.DoesNotExist:
                 return Response({"error": "Call not found or already ended"}, status=404)
 
-            if call.status in ["ended", "missed", "cancelled", "rejected"] or not call.is_active:
+            if call.status in ["ended", "missed", "cancelled", "rejected"]:
                 return Response({
                     "ok": True,
                     "message": f"Call already ended by {call.ended_by or 'system'}",
@@ -633,7 +633,9 @@ class UserEndCallView(APIView):
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
-                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                # Group names MUST match what UsersConsumer/ExecutivesConsumer join on connect:
+                # user_{user.id} (numeric pk) and executive_{executive.executive_id} (string code).
+                for group_name in [f"user_{call.user_id}", f"executive_{call.executive.executive_id}"]:
                     async_to_sync(channel_layer.group_send)(
                         group_name,
                         {
@@ -662,7 +664,7 @@ class ExecutiveEndCallView(APIView):
             except AgoraCallHistory.DoesNotExist:
                 return Response({"error": "Call not found or already ended"}, status=404)
 
-            if call.status in ["ended", "missed", "cancelled", "rejected"] or not call.is_active:
+            if call.status in ["ended", "missed", "cancelled", "rejected"]:
                 return Response({
                     "ok": True,
                     "message": f"Call already ended by {call.ended_by or 'system'}",
@@ -689,7 +691,7 @@ class ExecutiveEndCallView(APIView):
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
-                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                for group_name in [f"user_{call.user_id}", f"executive_{call.executive.executive_id}"]:
                     async_to_sync(channel_layer.group_send)(
                         group_name,
                         {
@@ -1008,13 +1010,69 @@ class OngoingCallsView(APIView):
 
     def get(self, request):
         ongoing_calls = AgoraCallHistory.objects.filter(
-            status="joined", 
+            status="joined",
             is_active=True
         ).select_related('user', 'executive').order_by('-joined_at')
-        
+
         serializer = OngoingCallHistorySerializer(ongoing_calls, many=True)
         return Response({
             'success': True,
             'count': ongoing_calls.count(),
             'calls': serializer.data
         }, status=status.HTTP_200_OK)
+
+
+class TerminateCallView(APIView):
+    """Admin-only: force-end a stuck/ongoing call (e.g. a call that never
+    received an end signal because the app crashed or lost network)."""
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def post(self, request, call_id):
+        with transaction.atomic():
+            try:
+                call = AgoraCallHistory.objects.select_for_update().get(id=call_id)
+            except AgoraCallHistory.DoesNotExist:
+                return Response({"error": "Call not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            if call.status in ["ended", "missed", "cancelled", "rejected"]:
+                return Response({
+                    "ok": True,
+                    "message": f"Call already ended by {call.ended_by or 'system'}",
+                    "coins_deducted": getattr(call, "coins_deducted", 0),
+                    "executive_earnings": float(getattr(call, "executive_earnings", 0.0)),
+                    "duration_seconds": getattr(call, "duration_seconds", 0)
+                })
+
+            call.end_call(ender="admin")
+            reason = "Call terminated by admin"
+
+        self.notify_end_call(call, reason)
+
+        return Response({
+            "ok": True,
+            "message": reason,
+            "coins_deducted": getattr(call, "coins_deducted", 0),
+            "executive_earnings": float(getattr(call, "executive_earnings", 0.0)),
+            "duration_seconds": getattr(call, "duration_seconds", 0)
+        }, status=status.HTTP_200_OK)
+
+    def notify_end_call(self, call, reason):
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                for group_name in [f"user_{call.user_id}", f"executive_{call.executive.executive_id}"]:
+                    async_to_sync(channel_layer.group_send)(
+                        group_name,
+                        {
+                            'type': 'call_ended',
+                            'call_id': call.id,
+                            'reason': reason,
+                            'ended_by': call.ended_by,
+                            'coins_deducted': call.coins_deducted,
+                            'executive_earnings': float(call.executive_earnings),
+                            'duration_seconds': call.duration_seconds
+                        }
+                    )
+        except Exception as exc:
+            logger.error("[CALLS] TerminateCallView.notify_end_call failed: %s", exc, exc_info=True)

@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 from executives.models import *
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.permissions import IsAdminUser
+from executives.permissions import IsAdminUser
 # For admin-specific views
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -552,10 +552,9 @@ class UpdateExecutiveOnlineStatusAPIView(APIView):
                 "id": executive.id
 
             }, status=status.HTTP_200_OK)
-
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    
+
 
 
 class ExecutiveSuspendToggleView(APIView):
@@ -593,29 +592,24 @@ class ExecutiveProfilePictureUploadView(APIView):
             else:
                 executive = get_object_or_404(Executive, id=request.user.id)
 
-            profile_picture, created = ExecutiveProfilePicture.objects.get_or_create(
-                executive=executive,
-                defaults={'status': 'pending'}
-            )
-
-            if not created:
-                profile_picture.status = 'pending'
-
             if 'profile_photo' not in request.FILES:
                 return Response(
                     {"error": "No profile photo provided"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            profile_picture.profile_photo = request.FILES['profile_photo']
-            profile_picture.save()
+            profile_picture = ExecutiveProfilePicture.objects.create(
+                executive=executive,
+                profile_photo=request.FILES['profile_photo'],
+                status='pending'
+            )
 
             serializer = ExecutiveProfilePictureSerializer(profile_picture, context={"request": request})
 
             return Response({
                 "message": "Profile picture uploaded successfully. Status: Pending approval.",
                 "data": serializer.data
-            }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+            }, status=status.HTTP_201_CREATED)
 
         except Executive.DoesNotExist:
             return Response({"error": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -629,11 +623,13 @@ class ExecutiveProfilePictureUploadView(APIView):
             else:
                 executive = get_object_or_404(Executive, id=request.user.id)
 
-            try:
-                profile_picture = ExecutiveProfilePicture.objects.get(executive=executive)
+            profile_picture = ExecutiveProfilePicture.objects.filter(
+                executive=executive
+            ).order_by('-created_at').first()
+            if profile_picture:
                 serializer = ExecutiveProfilePictureSerializer(profile_picture, context={"request": request})
                 return Response(serializer.data, status=status.HTTP_200_OK)
-            except ExecutiveProfilePicture.DoesNotExist:
+            else:
                 return Response(
                     {"message": "No profile picture found for this executive"},
                     status=status.HTTP_404_NOT_FOUND
@@ -645,7 +641,7 @@ class ExecutiveProfilePictureUploadView(APIView):
 
 
 class ExecutiveProfilePictureStatusView(APIView):
-    permission_classes = [IsAuthenticated]  
+    permission_classes = [IsAuthenticated]
     def get(self, request, executive_id=None):
 
         try:
@@ -653,15 +649,17 @@ class ExecutiveProfilePictureStatusView(APIView):
                 executive = get_object_or_404(Executive, id=executive_id)
             else:
                 executive = get_object_or_404(Executive, user=request.user)
-            
-            try:
-                profile_picture = ExecutiveProfilePicture.objects.get(executive=executive)
+
+            profile_picture = ExecutiveProfilePicture.objects.filter(
+                executive=executive
+            ).order_by('-created_at').first()
+            if profile_picture:
                 return Response({
                     "status": profile_picture.status,
                     "created_at": profile_picture.created_at,
                     "updated_at": profile_picture.updated_at
                 }, status=status.HTTP_200_OK)
-            except ExecutiveProfilePicture.DoesNotExist:
+            else:
                 return Response({
                     "status": "not_uploaded",
                     "message": "No profile picture uploaded yet"

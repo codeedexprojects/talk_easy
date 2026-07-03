@@ -197,6 +197,29 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
                 }))
                 return
 
+            # Liveness ping while on a call — lets the server-side reaper
+            # detect a crashed app / dropped network quickly instead of
+            # waiting on Agora's own (slower) webhook.
+            if msg_type == "heartbeat":
+                call_id = data.get("call_id")
+                if not call_id:
+                    await self.send(text_data=json.dumps({"error": "Missing 'call_id' for heartbeat"}))
+                    return
+
+                updated = await self.update_call_heartbeat(call_id)
+                if updated:
+                    await self.send(text_data=json.dumps({
+                        "type": "heartbeat_ack",
+                        "call_id": call_id
+                    }))
+                else:
+                    await self.send(text_data=json.dumps({
+                        "type": "heartbeat_ack",
+                        "call_id": call_id,
+                        "warning": "Call not found, not yours, or not active"
+                    }))
+                return
+
             # Exec response to a user-initiated call
             if msg_type == "executive_response":
                 frontend_user_id = data.get("user_id")
@@ -272,6 +295,18 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         except Exception as exc:
             logger.error("[WS] Error in ExecutivesConsumer.receive: %s", exc, exc_info=True)
             await self.send(text_data=json.dumps({"error": str(exc)}))
+
+    @database_sync_to_async
+    def update_call_heartbeat(self, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(
+                id=call_id, executive_id=self.user.id, status="joined"
+            )
+        except AgoraCallHistory.DoesNotExist:
+            return False
+        call.last_heartbeat = timezone.now()
+        call.save(update_fields=["last_heartbeat"])
+        return True
 
     @database_sync_to_async
     def get_user_id_from_call(self, call_id):
@@ -535,11 +570,46 @@ class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
                 }))
                 return
 
+            # Liveness ping while on a call — lets the server-side reaper
+            # detect a crashed app / dropped network quickly instead of
+            # waiting on Agora's own (slower) webhook.
+            if msg_type == "heartbeat":
+                call_id = data.get("call_id")
+                if not call_id:
+                    await self.send(text_data=json.dumps({"error": "Missing 'call_id' for heartbeat"}))
+                    return
+
+                updated = await self.update_call_heartbeat(call_id)
+                if updated:
+                    await self.send(text_data=json.dumps({
+                        "type": "heartbeat_ack",
+                        "call_id": call_id
+                    }))
+                else:
+                    await self.send(text_data=json.dumps({
+                        "type": "heartbeat_ack",
+                        "call_id": call_id,
+                        "warning": "Call not found, not yours, or not active"
+                    }))
+                return
+
             await self.send(text_data=json.dumps({"warning": "Unknown message type"}))
 
         except Exception as exc:
             logger.error("[WS] Error in UsersConsumer.receive: %s", exc, exc_info=True)
             await self.send(text_data=json.dumps({"error": str(exc)}))
+
+    @database_sync_to_async
+    def update_call_heartbeat(self, call_id):
+        try:
+            call = AgoraCallHistory.objects.get(
+                id=call_id, user_id=self.user.id, status="joined"
+            )
+        except AgoraCallHistory.DoesNotExist:
+            return False
+        call.last_heartbeat = timezone.now()
+        call.save(update_fields=["last_heartbeat"])
+        return True
 
     @database_sync_to_async
     def get_executives_detailed_status(self):

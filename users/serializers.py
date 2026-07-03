@@ -65,11 +65,12 @@ class RatingSerializer(serializers.ModelSerializer):
     UID = serializers.CharField(source='user.user_id', read_only=True)
     executive_id = serializers.IntegerField(source='executive.id', read_only=True)
     executive_name = serializers.CharField(source='executive.name', read_only=True)
+    executive_username = serializers.CharField(source='executive.username', read_only=True)
     EXID = serializers.CharField(source='executive.executive_id', read_only=True)
 
     class Meta:
         model = Rating
-        fields = ['id', 'user_id', 'username', 'UID', 'executive_id', 'executive_name', 'EXID', 'rating', 'comment', 'created_at']
+        fields = ['id', 'user_id', 'username', 'UID', 'executive_id', 'executive_name', 'executive_username', 'EXID', 'rating', 'comment', 'created_at']
 
 class CareerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -136,14 +137,14 @@ class UserProfileSerializerAdmin(serializers.ModelSerializer):
 
 class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
     is_favourite = serializers.SerializerMethodField()
-    profile_photo = serializers.SerializerMethodField()
+    profile_photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
         fields = [
             'id', 'executive_id', 'username', 'name',
             'status', 'is_offline', 'is_online', 'on_call',
-            'is_favourite', 'profile_photo',
+            'is_favourite', 'profile_photo_url',
         ]
 
     def get_is_favourite(self, obj):
@@ -152,16 +153,20 @@ class ExecutiveFavoriteSerializer(serializers.ModelSerializer):
             return Favourite.objects.filter(user=request.user, executive=obj).exists()
         return False
 
-    def get_profile_photo(self, obj):
-        try:
-            profile = obj.executiveprofilepicture
-            request = self.context.get('request')
-            if profile.profile_photo:
-                if request is not None:
-                    return request.build_absolute_uri(profile.profile_photo.url)
-                return profile.profile_photo.url
-        except ExecutiveProfilePicture.DoesNotExist:
-            return None
+    def get_profile_photo_url(self, obj):
+        request = self.context.get('request')
+
+        # Only expose the photo once admin has approved it
+        profile_pic = ExecutiveProfilePicture.objects.filter(
+            executive=obj, status='approved'
+        ).order_by("-created_at").first()
+
+        if profile_pic and profile_pic.profile_photo:
+            url = profile_pic.profile_photo.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return None
 
 
 
@@ -192,9 +197,9 @@ class Executivelistserializer(serializers.ModelSerializer):
     def get_profile_photo_url(self, obj):
         request = self.context.get('request')
 
-        # Get latest uploaded profile picture regardless of status
+        # Only expose the photo once admin has approved it
         profile_pic = ExecutiveProfilePicture.objects.filter(
-            executive=obj
+            executive=obj, status='approved'
         ).order_by("-created_at").first()
 
         if profile_pic and profile_pic.profile_photo:

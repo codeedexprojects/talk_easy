@@ -13,6 +13,10 @@ DEBUG = False
 # Must be set to actual production domains
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
 
+# Trust nginx's X-Forwarded-Proto header so request.is_secure() / build_absolute_uri()
+# correctly detect https behind the reverse proxy (nginx terminates SSL, proxies to Gunicorn over http).
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 # Security Settings
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True
