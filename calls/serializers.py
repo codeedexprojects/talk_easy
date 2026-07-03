@@ -153,6 +153,8 @@ class AgoraCallHistorySerializer(serializers.ModelSerializer):
 class OngoingCallHistorySerializer(serializers.ModelSerializer):
     user_id = serializers.CharField(source="user.user_id", read_only=True)
     executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
+    executive_name = serializers.CharField(source="executive.name", read_only=True)
+    executive_username = serializers.CharField(source="executive.username", read_only=True)
     duration = serializers.SerializerMethodField()
     user = serializers.IntegerField(source="user.id", read_only=True)
     executive = serializers.IntegerField(source="executive.id", read_only=True)
@@ -179,6 +181,8 @@ class OngoingCallHistorySerializer(serializers.ModelSerializer):
             "amount_per_min",
             "user_id",
             "executive_id",
+            "executive_name",
+            "executive_username",
             "user",
             "executive",
             "ended_by",
