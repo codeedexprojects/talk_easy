@@ -593,7 +593,7 @@ class UserEndCallView(APIView):
             except AgoraCallHistory.DoesNotExist:
                 return Response({"error": "Call not found or already ended"}, status=404)
 
-            if call.status in ["ended", "missed", "cancelled", "rejected"] or not call.is_active:
+            if call.status in ["ended", "missed", "cancelled", "rejected"]:
                 return Response({
                     "ok": True,
                     "message": f"Call already ended by {call.ended_by or 'system'}",
@@ -633,7 +633,9 @@ class UserEndCallView(APIView):
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
-                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                # Group names MUST match what UsersConsumer/ExecutivesConsumer join on connect:
+                # user_{user.id} (numeric pk) and executive_{executive.executive_id} (string code).
+                for group_name in [f"user_{call.user_id}", f"executive_{call.executive.executive_id}"]:
                     async_to_sync(channel_layer.group_send)(
                         group_name,
                         {
@@ -662,7 +664,7 @@ class ExecutiveEndCallView(APIView):
             except AgoraCallHistory.DoesNotExist:
                 return Response({"error": "Call not found or already ended"}, status=404)
 
-            if call.status in ["ended", "missed", "cancelled", "rejected"] or not call.is_active:
+            if call.status in ["ended", "missed", "cancelled", "rejected"]:
                 return Response({
                     "ok": True,
                     "message": f"Call already ended by {call.ended_by or 'system'}",
@@ -689,7 +691,7 @@ class ExecutiveEndCallView(APIView):
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
-                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                for group_name in [f"user_{call.user_id}", f"executive_{call.executive.executive_id}"]:
                     async_to_sync(channel_layer.group_send)(
                         group_name,
                         {
@@ -1033,7 +1035,7 @@ class TerminateCallView(APIView):
             except AgoraCallHistory.DoesNotExist:
                 return Response({"error": "Call not found"}, status=status.HTTP_404_NOT_FOUND)
 
-            if call.status in ["ended", "missed", "cancelled", "rejected"] or not call.is_active:
+            if call.status in ["ended", "missed", "cancelled", "rejected"]:
                 return Response({
                     "ok": True,
                     "message": f"Call already ended by {call.ended_by or 'system'}",
@@ -1059,7 +1061,7 @@ class TerminateCallView(APIView):
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
-                for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
+                for group_name in [f"user_{call.user_id}", f"executive_{call.executive.executive_id}"]:
                     async_to_sync(channel_layer.group_send)(
                         group_name,
                         {

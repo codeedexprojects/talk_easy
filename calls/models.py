@@ -70,7 +70,8 @@ class AgoraCallHistory(models.Model):
             self.joined_at = timezone.now()
         if self.status in ["pending", "ringing"]:
             self.status = "joined"
-        self.save(update_fields=["joined_at", "status"])
+        self.is_active = True
+        self.save(update_fields=["joined_at", "status", "is_active"])
 
     def _compute_final_duration(self, ended_at):
         base_start = self.joined_at or self.start_time
@@ -86,7 +87,7 @@ class AgoraCallHistory(models.Model):
             except AgoraCallHistory.DoesNotExist:
                 return
 
-            if locked_call.status in ["ended", "missed", "cancelled", "rejected"] or not locked_call.is_active:
+            if locked_call.status in ["ended", "missed", "cancelled", "rejected"]:
                 self.refresh_from_db()
                 return
 
@@ -208,27 +209,51 @@ class AgoraCallHistory(models.Model):
             call.save()
 
     @staticmethod
-    def end_stale_ongoing_calls(stale_after_seconds=90):
-        """Force-end calls stuck in 'joined' whose last heartbeat is stale.
+    def end_stale_ongoing_calls(stale_after_seconds=25, no_heartbeat_fallback_seconds=300, ringing_timeout_seconds=30):
+        """Force-end calls stuck in 'joined'/'ringing'/'pending' that have gone stale.
 
         Covers app crashes / network drops where neither the client nor the
         Agora webhook ever sends an end signal, so the call and the
-        executive's on_call flag would otherwise stay stuck forever.
+        executive's on_call flag would otherwise stay stuck forever. This is
+        the server-side authority: it does not trust is_active (which can be
+        stale on older/edge-case rows) and instead keys off status + timestamps.
+
+        stale_after_seconds applies only when last_heartbeat is present (i.e.
+        the client is actively sending heartbeats) — it's a tight bound because
+        we know the signal is fresh. no_heartbeat_fallback_seconds applies when
+        last_heartbeat has never been set (older clients that don't send
+        heartbeats yet); it must stay generous, since duration/coin billing is
+        computed from joined_at and cutting this too short both kills healthy
+        calls and undercharges for calls that were actually still running.
         """
-        cutoff = timezone.now() - timedelta(seconds=stale_after_seconds)
-        stale_call_ids = AgoraCallHistory.objects.filter(
+        heartbeat_cutoff = timezone.now() - timedelta(seconds=stale_after_seconds)
+        fallback_cutoff = timezone.now() - timedelta(seconds=no_heartbeat_fallback_seconds)
+        stale_joined_ids = AgoraCallHistory.objects.filter(
             status="joined",
-            is_active=True,
         ).filter(
-            models.Q(last_heartbeat__lte=cutoff) |
-            models.Q(last_heartbeat__isnull=True, joined_at__lte=cutoff)
+            models.Q(last_heartbeat__isnull=False, last_heartbeat__lte=heartbeat_cutoff) |
+            models.Q(last_heartbeat__isnull=True, joined_at__lte=fallback_cutoff)
         ).values_list("id", flat=True)
 
         ended = []
-        for call_id in stale_call_ids:
+        for call_id in stale_joined_ids:
             call = AgoraCallHistory.objects.get(id=call_id)
             call.end_call(ender="system_timeout")
             ended.append(call_id)
+
+        # Never-answered calls: no one joined, and ringing/pending has gone stale.
+        ringing_cutoff = timezone.now() - timedelta(seconds=ringing_timeout_seconds)
+        stale_ringing_ids = AgoraCallHistory.objects.filter(
+            status__in=["ringing", "pending"],
+            joined_at__isnull=True,
+            start_time__lte=ringing_cutoff,
+        ).values_list("id", flat=True)
+
+        for call_id in stale_ringing_ids:
+            call = AgoraCallHistory.objects.get(id=call_id)
+            call.end_call(ender="system_timeout")
+            ended.append(call_id)
+
         return ended
 
 

@@ -7,23 +7,48 @@ from calls.models import AgoraCallHistory
 
 class Command(BaseCommand):
     help = (
-        "Force-end calls stuck in 'joined' status whose heartbeat has gone "
-        "stale (e.g. the app crashed or lost network mid-call), so the call "
-        "row and the executive's on_call flag don't stay stuck forever. "
-        "Intended to be run periodically (e.g. every minute via cron/Task Scheduler)."
+        "Force-end calls stuck in 'joined'/'ringing'/'pending' status that "
+        "have gone stale (e.g. the app crashed or lost network mid-call), so "
+        "the call row and the executive's on_call flag don't stay stuck "
+        "forever. Relies on the client sending periodic {'type':'heartbeat', "
+        "'call_id':...} pings while joined (every ~5-8s recommended) to keep "
+        "last_heartbeat fresh. Intended to be run frequently (e.g. every "
+        "10-15s via cron) so detection latency stays close to --stale-after."
     )
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--stale-after",
             type=int,
-            default=90,
-            help="Seconds since last heartbeat/join before a call is considered dead (default: 90)",
+            default=25,
+            help="Seconds since last heartbeat before a joined call is considered dead, "
+                 "when heartbeats ARE being received (default: 25)",
+        )
+        parser.add_argument(
+            "--no-heartbeat-fallback",
+            type=int,
+            default=300,
+            help="Seconds since joined_at before a joined call with NO heartbeat ever "
+                 "recorded is considered dead. Keep generous until the client sends "
+                 "heartbeats, since duration/coin billing is computed from joined_at "
+                 "(default: 300)",
+        )
+        parser.add_argument(
+            "--ringing-timeout",
+            type=int,
+            default=30,
+            help="Seconds before an unanswered ringing/pending call is marked missed (default: 30)",
         )
 
     def handle(self, *args, **options):
         stale_after = options["stale_after"]
-        ended = AgoraCallHistory.end_stale_ongoing_calls(stale_after_seconds=stale_after)
+        no_heartbeat_fallback = options["no_heartbeat_fallback"]
+        ringing_timeout = options["ringing_timeout"]
+        ended = AgoraCallHistory.end_stale_ongoing_calls(
+            stale_after_seconds=stale_after,
+            no_heartbeat_fallback_seconds=no_heartbeat_fallback,
+            ringing_timeout_seconds=ringing_timeout,
+        )
 
         for call_id in ended:
             try:
@@ -42,18 +67,20 @@ class Command(BaseCommand):
             channel_layer = get_channel_layer()
             if not channel_layer:
                 return
-            for group_name in [f"user_client_{call.user_id}", f"user_executive_{call.executive_id}"]:
-                async_to_sync(channel_layer.group_send)(
-                    group_name,
-                    {
-                        "type": "call_ended",
-                        "call_id": call.id,
-                        "reason": "Call ended automatically due to connection loss",
-                        "ended_by": call.ended_by,
-                        "coins_deducted": call.coins_deducted,
-                        "executive_earnings": float(call.executive_earnings),
-                        "duration_seconds": call.duration_seconds,
-                    },
-                )
+            groups = [f"user_{call.user_id}", f"executive_{call.executive.executive_id}"]
+            if call.status == "missed":
+                event = {"type": "call_missed", "call_id": call.id}
+            else:
+                event = {
+                    "type": "call_ended",
+                    "call_id": call.id,
+                    "reason": "Call ended automatically due to connection loss",
+                    "ended_by": call.ended_by,
+                    "coins_deducted": call.coins_deducted,
+                    "executive_earnings": float(call.executive_earnings),
+                    "duration_seconds": call.duration_seconds,
+                }
+            for group_name in groups:
+                async_to_sync(channel_layer.group_send)(group_name, event)
         except Exception as exc:
             self.stderr.write(f"Failed to notify for call {call.id}: {exc}")

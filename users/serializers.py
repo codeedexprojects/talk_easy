@@ -65,11 +65,12 @@ class RatingSerializer(serializers.ModelSerializer):
     UID = serializers.CharField(source='user.user_id', read_only=True)
     executive_id = serializers.IntegerField(source='executive.id', read_only=True)
     executive_name = serializers.CharField(source='executive.name', read_only=True)
+    executive_username = serializers.CharField(source='executive.username', read_only=True)
     EXID = serializers.CharField(source='executive.executive_id', read_only=True)
 
     class Meta:
         model = Rating
-        fields = ['id', 'user_id', 'username', 'UID', 'executive_id', 'executive_name', 'EXID', 'rating', 'comment', 'created_at']
+        fields = ['id', 'user_id', 'username', 'UID', 'executive_id', 'executive_name', 'executive_username', 'EXID', 'rating', 'comment', 'created_at']
 
 class CareerSerializer(serializers.ModelSerializer):
     class Meta:
