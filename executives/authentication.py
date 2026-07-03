@@ -14,6 +14,9 @@ class ExecutiveTokenAuthentication(BaseAuthentication):
         except ExecutiveToken.DoesNotExist:
             raise AuthenticationFailed("Invalid or missing token")
 
+        if token_obj.executive.is_banned:
+            raise AuthenticationFailed("Your account has been banned by admin.")
+
         if token_obj.revoked:
             raise AuthenticationFailed("Token revoked")
 
@@ -31,6 +34,7 @@ def custom_exception_handler(exc, context):
 
     if response is not None and isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
         response.status_code = 403
-        response.data = {"message": "Token revoked"}
+        detail = exc.detail if hasattr(exc, "detail") else str(exc)
+        response.data = {"message": str(detail)}
 
     return response

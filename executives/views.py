@@ -26,6 +26,8 @@ from executives.authentication import ExecutiveTokenAuthentication
 from executives.utils import send_otp, is_test_number
 import uuid
 from datetime import timedelta
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 
 
@@ -530,8 +532,28 @@ class UpdateExecutiveStatusAPIView(APIView):
         serializer = ExecutiveStatusUpdateSerializer(executive, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+
+            if executive.is_banned:
+                self.force_logout(executive)
+
             return Response({"detail": "Executive status updated successfully.", "status": True}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def force_logout(self, executive):
+        """Revoke active sessions and disconnect any live socket for a just-banned executive."""
+        ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
+            revoked=True, revoked_at=timezone.now()
+        )
+
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            try:
+                async_to_sync(channel_layer.group_send)(
+                    f"executive_{executive.executive_id}",
+                    {"type": "force_logout", "reason": "Your account has been banned."}
+                )
+            except Exception as exc:
+                logger.error("[BAN] Failed to send force_logout to executive_id=%s: %s", executive.executive_id, exc, exc_info=True)
 
 class UpdateExecutiveOnlineStatusAPIView(APIView):
     authentication_classes = [ExecutiveTokenAuthentication] 

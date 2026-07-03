@@ -1,9 +1,16 @@
+from unittest import mock
+
 from django.test import TestCase
 from django.utils import timezone
 from decimal import Decimal
 from datetime import time
-from .models import Executive, ExecutiveStats, GlobalPricing, RateSchedule
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.test import APIRequestFactory, force_authenticate
+
+from .models import Executive, ExecutiveStats, ExecutiveToken, GlobalPricing, RateSchedule
 from .pricing import get_current_amount_per_min
+from .views import UpdateExecutiveStatusAPIView
+from .authentication import ExecutiveTokenAuthentication
 from django.core.cache import cache
 
 
@@ -158,3 +165,83 @@ class PricingTestCase(TestCase):
         
         rate = get_current_amount_per_min(self.executive)
         self.assertEqual(rate, Decimal('8.0'))
+
+
+class ExecutiveBanForceLogoutTestCase(TestCase):
+    def setUp(self):
+        self.executive = Executive.objects.create(
+            executive_id="BANTEST01",
+            mobile_number="9998887777",
+            name="Ban Test Executive",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.token = ExecutiveToken.objects.create(
+            executive=self.executive,
+            access_token="ban-test-access",
+            refresh_token="ban-test-refresh",
+            revoked=False,
+            expires_at=timezone.now() + timezone.timedelta(days=1),
+        )
+        self.factory = APIRequestFactory()
+
+    @mock.patch("executives.views.get_channel_layer")
+    def test_ban_revokes_token_and_broadcasts_force_logout(self, mock_get_channel_layer):
+        mock_layer = mock.Mock()
+        mock_layer.group_send = mock.AsyncMock()
+        mock_get_channel_layer.return_value = mock_layer
+
+        request = self.factory.patch(
+            f"/executive/{self.executive.id}/update-status/", {"is_banned": True}, format="json"
+        )
+        force_authenticate(request, user=self.executive)
+        response = UpdateExecutiveStatusAPIView.as_view()(request, executive_id=self.executive.id)
+
+        self.assertEqual(response.status_code, 200)
+
+        self.token.refresh_from_db()
+        self.assertTrue(self.token.revoked)
+        self.assertIsNotNone(self.token.revoked_at)
+
+        mock_layer.group_send.assert_called_once()
+        group_name, event = mock_layer.group_send.call_args[0]
+        self.assertEqual(group_name, f"executive_{self.executive.executive_id}")
+        self.assertEqual(event["type"], "force_logout")
+
+    @mock.patch("executives.views.get_channel_layer")
+    def test_banned_executive_rejected_on_next_http_request(self, mock_get_channel_layer):
+        mock_get_channel_layer.return_value = mock.Mock()
+
+        request = self.factory.patch(
+            f"/executive/{self.executive.id}/update-status/", {"is_banned": True}, format="json"
+        )
+        force_authenticate(request, user=self.executive)
+        UpdateExecutiveStatusAPIView.as_view()(request, executive_id=self.executive.id)
+
+        auth = ExecutiveTokenAuthentication()
+        fake_request = mock.Mock()
+        fake_request.headers = {"X-EXECUTIVE-TOKEN": self.token.access_token}
+
+        with self.assertRaises(AuthenticationFailed) as ctx:
+            auth.authenticate(fake_request)
+
+        self.assertIn("banned", str(ctx.exception.detail).lower())
+        self.assertNotIn("token revoked", str(ctx.exception.detail).lower())
+
+    @mock.patch("executives.views.get_channel_layer")
+    def test_unban_does_not_trigger_force_logout(self, mock_get_channel_layer):
+        mock_layer = mock.Mock()
+        mock_layer.group_send = mock.AsyncMock()
+        mock_get_channel_layer.return_value = mock_layer
+
+        request = self.factory.patch(
+            f"/executive/{self.executive.id}/update-status/", {"is_banned": False}, format="json"
+        )
+        force_authenticate(request, user=self.executive)
+        response = UpdateExecutiveStatusAPIView.as_view()(request, executive_id=self.executive.id)
+
+        self.assertEqual(response.status_code, 200)
+        mock_layer.group_send.assert_not_called()
+
+        self.token.refresh_from_db()
+        self.assertFalse(self.token.revoked)

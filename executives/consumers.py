@@ -482,6 +482,20 @@ class ExecutivesConsumer(AsyncWebsocketConsumer, CustomTokenAuthMixin):
         except Exception as exc:
             logger.error("[WS] Error delivering call_ended to executive: %s", exc, exc_info=True)
 
+    async def force_logout(self, event):
+        """Disconnect an executive whose account was just banned/suspended by an admin."""
+        try:
+            logger.info("[WS] Force logout executive_id=%s: %s",
+                        getattr(self, 'executive_id', 'unknown'), event.get("reason"))
+            await self.send(text_data=json.dumps({
+                "type": "force_logout",
+                "reason": event.get("reason", "You have been logged out by admin."),
+            }))
+        except Exception as exc:
+            logger.error("[WS] Error delivering force_logout to executive: %s", exc, exc_info=True)
+        finally:
+            await self.close(code=4003)
+
 
 # -------------------- UsersConsumer --------------------
 class UsersConsumer(AsyncWebsocketConsumer, JWTAuthMixin):
