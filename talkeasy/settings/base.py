@@ -161,6 +161,12 @@ AGORA_APP_ID = config('AGORA_APP_ID')
 AGORA_APP_CERTIFICATE = config('AGORA_APP_CERTIFICATE')
 AGORA_TOKEN_TTL_SECONDS = config('AGORA_TOKEN_TTL_SECONDS', default=3600, cast=int)
 
+# Agora RESTful API credentials (Customer ID/Secret from the Agora Console —
+# separate from APP_ID/APP_CERTIFICATE above). Used to query live channel
+# presence for stale-call detection. Optional: leave unset to disable.
+AGORA_CUSTOMER_ID = config('AGORA_CUSTOMER_ID', default=None)
+AGORA_CUSTOMER_SECRET = config('AGORA_CUSTOMER_SECRET', default=None)
+
 # Payment Configuration
 RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID')
 RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET')

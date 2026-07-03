@@ -209,7 +209,8 @@ class AgoraCallHistory(models.Model):
             call.save()
 
     @staticmethod
-    def end_stale_ongoing_calls(stale_after_seconds=25, no_heartbeat_fallback_seconds=300, ringing_timeout_seconds=30):
+    def end_stale_ongoing_calls(stale_after_seconds=25, no_heartbeat_fallback_seconds=300,
+                                 ringing_timeout_seconds=30, check_agora_presence=True):
         """Force-end calls stuck in 'joined'/'ringing'/'pending' that have gone stale.
 
         Covers app crashes / network drops where neither the client nor the
@@ -225,17 +226,42 @@ class AgoraCallHistory(models.Model):
         heartbeats yet); it must stay generous, since duration/coin billing is
         computed from joined_at and cutting this too short both kills healthy
         calls and undercharges for calls that were actually still running.
+
+        If check_agora_presence is True and Agora RESTful credentials are
+        configured, joined calls are first checked directly against Agora's
+        channel presence API (ground truth from Agora's own servers) and
+        ended immediately if neither party is actually still connected —
+        this doesn't need to wait for stale_after_seconds at all.
         """
+        ended = []
+
+        if check_agora_presence:
+            from calls.utils import agora_presence_configured, get_channel_active_uids
+
+            if agora_presence_configured():
+                joined_calls = AgoraCallHistory.objects.filter(status="joined")
+                for call in joined_calls:
+                    active_uids = get_channel_active_uids(call.channel_name)
+                    if active_uids is None:
+                        # Unknown (API error/not configured) — don't act on it, fall through to timers below.
+                        continue
+                    expected_uids = {str(call.uid), str(call.callee_uid)}
+                    if not (expected_uids & active_uids):
+                        # Neither the caller's nor the callee's uid is in the channel anymore.
+                        call.end_call(ender="agora_presence_check")
+                        ended.append(call.id)
+
         heartbeat_cutoff = timezone.now() - timedelta(seconds=stale_after_seconds)
         fallback_cutoff = timezone.now() - timedelta(seconds=no_heartbeat_fallback_seconds)
         stale_joined_ids = AgoraCallHistory.objects.filter(
             status="joined",
+        ).exclude(
+            id__in=ended,
         ).filter(
             models.Q(last_heartbeat__isnull=False, last_heartbeat__lte=heartbeat_cutoff) |
             models.Q(last_heartbeat__isnull=True, joined_at__lte=fallback_cutoff)
         ).values_list("id", flat=True)
 
-        ended = []
         for call_id in stale_joined_ids:
             call = AgoraCallHistory.objects.get(id=call_id)
             call.end_call(ender="system_timeout")

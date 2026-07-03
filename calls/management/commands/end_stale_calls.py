@@ -39,6 +39,12 @@ class Command(BaseCommand):
             default=30,
             help="Seconds before an unanswered ringing/pending call is marked missed (default: 30)",
         )
+        parser.add_argument(
+            "--no-agora-check",
+            action="store_true",
+            help="Skip the Agora channel presence check (ground-truth, requires "
+                 "AGORA_CUSTOMER_ID/SECRET) and rely only on heartbeat/timeout logic.",
+        )
 
     def handle(self, *args, **options):
         stale_after = options["stale_after"]
@@ -48,6 +54,7 @@ class Command(BaseCommand):
             stale_after_seconds=stale_after,
             no_heartbeat_fallback_seconds=no_heartbeat_fallback,
             ringing_timeout_seconds=ringing_timeout,
+            check_agora_presence=not options["no_agora_check"],
         )
 
         for call_id in ended:

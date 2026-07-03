@@ -1,6 +1,8 @@
 import time
 import os
 import logging
+import base64
+import requests
 from django.conf import settings
 from agora_token_builder import RtcTokenBuilder
 from firebase_admin import messaging, credentials
@@ -28,6 +30,68 @@ def generate_agora_token(channel_name, uid, role=1):
         expiration_time
     )
     return token
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agora Channel Presence (RESTful API)
+# ─────────────────────────────────────────────────────────────────────────────
+# Ground-truth check of who is actually still connected to an RTC channel,
+# straight from Agora's own servers — independent of our WebSocket/heartbeat
+# infra. Requires AGORA_CUSTOMER_ID / AGORA_CUSTOMER_SECRET (RESTful API
+# credentials from the Agora Console, separate from APP_ID/APP_CERTIFICATE).
+
+def agora_presence_configured() -> bool:
+    return bool(
+        getattr(settings, "AGORA_CUSTOMER_ID", None)
+        and getattr(settings, "AGORA_CUSTOMER_SECRET", None)
+    )
+
+
+def get_channel_active_uids(channel_name: str, timeout: float = 5.0):
+    """
+    Query Agora's channel/user presence endpoint for the given channel.
+
+    Returns a set of uid strings currently connected, or None if the check
+    could not be performed (not configured, network error, API error) — the
+    caller must treat None as "unknown", not "empty", to avoid ending calls
+    on a transient Agora API failure.
+    """
+    if not agora_presence_configured():
+        return None
+
+    app_id = settings.AGORA_APP_ID
+    customer_id = settings.AGORA_CUSTOMER_ID
+    customer_secret = settings.AGORA_CUSTOMER_SECRET
+
+    auth = base64.b64encode(f"{customer_id}:{customer_secret}".encode()).decode()
+    url = f"https://api.agora.io/dev/v1/channel/user/{app_id}/{channel_name}"
+
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Basic {auth}"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data.get("success", True) and "data" not in data:
+            logger.warning("[AGORA] Presence check failed for channel=%s: %s", channel_name, data)
+            return None
+
+        channel_data = data.get("data", {})
+        if not channel_data.get("channel_exist", False):
+            return set()
+
+        users = channel_data.get("users", []) or []
+        return {str(u.get("uid", u)) if isinstance(u, dict) else str(u) for u in users}
+
+    except requests.RequestException as exc:
+        logger.warning("[AGORA] Presence check request failed for channel=%s: %s", channel_name, exc)
+        return None
+    except (ValueError, KeyError) as exc:
+        logger.warning("[AGORA] Presence check response parse failed for channel=%s: %s", channel_name, exc)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
