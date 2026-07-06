@@ -32,5 +32,6 @@ urlpatterns = [
     path('admin/recharge/', AdminRechargeView.as_view(), name='admin-recharge'),#recharge by admin
     path('analytics/', RechargeAnalyticsView.as_view(), name='recharge-analytics'),
     path("recharges/", UserRechargeListView.as_view(), name="recharge-list"),
+    path("recharges/export/", UserRechargeExportExcelView.as_view(), name="recharge-list-export"),
 
 ]

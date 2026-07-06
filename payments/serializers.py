@@ -114,6 +114,8 @@ class ExecutiveRedeemHistorySerializer(serializers.ModelSerializer):
 
 class AdminRedeemManageSerializer(serializers.ModelSerializer):
     executive_name = serializers.CharField(source="executive.name", read_only=True)
+    executive_id = serializers.CharField(source="executive.executive_id", read_only=True)
+    executive_username = serializers.CharField(source="executive.username", read_only=True)
     redemption_amount = serializers.DecimalField(
         source="redemption_option.amount",
         max_digits=12,
@@ -127,6 +129,8 @@ class AdminRedeemManageSerializer(serializers.ModelSerializer):
             "id",
             "executive",
             "executive_name",
+            "executive_id",
+            "executive_username",
             "redemption_option",
             "redemption_amount",
             "status",

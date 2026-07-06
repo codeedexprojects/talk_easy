@@ -12,6 +12,11 @@ import razorpay
 from django.conf import settings
 from accounts.pagination import *
 from executives.permissions import IsAdminUser
+from django.http import HttpResponse
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from decimal import Decimal
 
 
 #  Category Create & List
@@ -648,3 +653,139 @@ class UserRechargeListView(APIView):
         serializer = UserRechargeSerializer(paginated_qs, many=True)
 
         return paginator.get_paginated_response(serializer.data)
+
+
+class UserRechargeExportExcelView(APIView):
+    """
+    Exports the full recharge list (respecting the same filters as
+    UserRechargeListView) as a formatted Excel (.xlsx) file.
+    """
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        user_id = request.query_params.get("user_id")
+        status_filter = request.query_params.get("status")
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        recharges = UserRecharge.objects.select_related("user", "plan").order_by("-created_at")
+
+        if user_id:
+            recharges = recharges.filter(user__id=user_id)
+        if status_filter:
+            recharges = recharges.filter(payment_status=status_filter)
+        if start_date and end_date:
+            recharges = recharges.filter(created_at__range=[start_date, end_date])
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Recharges"
+
+        headers = [
+            "ID",
+            "User ID",
+            "User Name",
+            "Plan Name",
+            "Coins Added",
+            "Amount Paid (₹)",
+            "Payment Status",
+            "Successful",
+            "By Admin",
+            "Razorpay Order ID",
+            "Razorpay Payment ID",
+            "Created At",
+            "Updated At",
+        ]
+
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True, size=11)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin_border = Border(
+            left=Side(style="thin", color="D9D9D9"),
+            right=Side(style="thin", color="D9D9D9"),
+            top=Side(style="thin", color="D9D9D9"),
+            bottom=Side(style="thin", color="D9D9D9"),
+        )
+
+        sheet.append(headers)
+        for col_num, _ in enumerate(headers, start=1):
+            cell = sheet.cell(row=1, column=col_num)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        sheet.freeze_panes = "A2"
+        sheet.row_dimensions[1].height = 28
+
+        status_fills = {
+            "successful": PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid"),
+            "pending": PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid"),
+            "failed": PatternFill(start_color="FCE4E4", end_color="FCE4E4", fill_type="solid"),
+        }
+
+        total_amount = Decimal("0")
+        total_coins = 0
+        row_num = 2
+
+        for recharge in recharges.iterator():
+            row = [
+                recharge.id,
+                recharge.user.user_id if recharge.user else "",
+                recharge.user.name if recharge.user else "",
+                recharge.plan.plan_name if recharge.plan else "",
+                recharge.coins_added,
+                float(recharge.amount_paid),
+                recharge.payment_status.title(),
+                "Yes" if recharge.is_successful else "No",
+                "Yes" if recharge.by_admin else "No",
+                recharge.razorpay_order_id or "",
+                recharge.razorpay_payment_id or "",
+                recharge.created_at.strftime("%Y-%m-%d %H:%M:%S") if recharge.created_at else "",
+                recharge.updated_at.strftime("%Y-%m-%d %H:%M:%S") if recharge.updated_at else "",
+            ]
+            sheet.append(row)
+
+            fill = status_fills.get(recharge.payment_status)
+            for col_num in range(1, len(headers) + 1):
+                cell = sheet.cell(row=row_num, column=col_num)
+                cell.border = thin_border
+                if fill:
+                    cell.fill = fill
+                if col_num == 6:
+                    cell.number_format = "#,##0.00"
+
+            if recharge.is_successful:
+                total_amount += recharge.amount_paid
+                total_coins += recharge.coins_added
+
+            row_num += 1
+
+        # Totals row (successful recharges only)
+        totals_font = Font(bold=True)
+        totals_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        sheet.append([
+            "", "", "", "Total (Successful)", total_coins, float(total_amount),
+            "", "", "", "", "", "", ""
+        ])
+        for col_num in range(1, len(headers) + 1):
+            cell = sheet.cell(row=row_num, column=col_num)
+            cell.font = totals_font
+            cell.fill = totals_fill
+            cell.border = thin_border
+            if col_num == 6:
+                cell.number_format = "#,##0.00"
+
+        column_widths = [8, 14, 22, 22, 14, 16, 16, 12, 12, 26, 26, 20, 20]
+        for i, width in enumerate(column_widths, start=1):
+            sheet.column_dimensions[get_column_letter(i)].width = width
+
+        sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{row_num - 1}"
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        filename = f"recharges_{now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        workbook.save(response)
+        return response
