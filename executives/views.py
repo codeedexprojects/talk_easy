@@ -24,6 +24,12 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.parsers import MultiPartParser, FormParser
 from executives.authentication import ExecutiveTokenAuthentication
 from executives.utils import send_otp, is_test_number
+from notifications.utils import (
+    TOPIC_ALL_EXECUTIVES,
+    TOPIC_ALL_MEMBERS,
+    subscribe_token_to_topic,
+    unsubscribe_token_from_topic,
+)
 import uuid
 from datetime import timedelta
 from channels.layers import get_channel_layer
@@ -209,9 +215,14 @@ class ExecutiveVerifyOTPView(APIView):
             executive.is_logged_out = False
             executive.is_verified = True
 
-            if fcm_token:
-                executive.fcm_token = fcm_token  
-            executive.save()  
+            if fcm_token and fcm_token != executive.fcm_token:
+                if executive.fcm_token:
+                    unsubscribe_token_from_topic(executive.fcm_token, TOPIC_ALL_EXECUTIVES)
+                    unsubscribe_token_from_topic(executive.fcm_token, TOPIC_ALL_MEMBERS)
+                executive.fcm_token = fcm_token
+                subscribe_token_to_topic(fcm_token, TOPIC_ALL_EXECUTIVES)
+                subscribe_token_to_topic(fcm_token, TOPIC_ALL_MEMBERS)
+            executive.save()
 
             return Response({
                 "message": "Test login successful (bypassed OTP verification).",
@@ -250,10 +261,15 @@ class ExecutiveVerifyOTPView(APIView):
         executive.is_logged_out = False
         executive.is_verified = True
 
-        if fcm_token:
-            executive.fcm_token = fcm_token  
+        if fcm_token and fcm_token != executive.fcm_token:
+            if executive.fcm_token:
+                unsubscribe_token_from_topic(executive.fcm_token, TOPIC_ALL_EXECUTIVES)
+                unsubscribe_token_from_topic(executive.fcm_token, TOPIC_ALL_MEMBERS)
+            executive.fcm_token = fcm_token
+            subscribe_token_to_topic(fcm_token, TOPIC_ALL_EXECUTIVES)
+            subscribe_token_to_topic(fcm_token, TOPIC_ALL_MEMBERS)
 
-        executive.save()  
+        executive.save()
 
         return Response({
             "message": "OTP verified successfully",

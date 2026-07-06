@@ -6,27 +6,70 @@ from calls.utils import firebase_initialized
 
 logger = logging.getLogger("notifications")
 
-# FCM limit for a single multicast call.
-_BATCH_SIZE = 500
+# Topics every device's FCM token is subscribed to based on account type.
+TOPIC_ALL_USERS = "talkeazy_user"
+TOPIC_ALL_EXECUTIVES = "talkeazy_executive"
+TOPIC_ALL_MEMBERS = "talkeazy_all"
+AUDIENCE_TOPICS = {
+    "users": [TOPIC_ALL_USERS],
+    "executives": [TOPIC_ALL_EXECUTIVES],
+    "all": [TOPIC_ALL_MEMBERS],
+}
 
 
-def send_bulk_fcm_notification(tokens, title, body, image_url=None, data=None):
+def subscribe_token_to_topic(token, topic):
+    """Subscribe a single device token to `topic`. Never raises."""
+    if not token or not str(token).strip():
+        return False
+
+    if not firebase_initialized:
+        logger.warning("[FCM] Firebase not initialized — skipping topic subscribe.")
+        return False
+
+    try:
+        messaging.subscribe_to_topic([token], topic)
+        return True
+    except Exception as exc:
+        logger.error("[FCM] Failed to subscribe token to topic %s: %s", topic, exc, exc_info=True)
+        return False
+
+
+def unsubscribe_token_from_topic(token, topic):
+    """Unsubscribe a single device token from `topic`. Never raises."""
+    if not token or not str(token).strip():
+        return False
+
+    if not firebase_initialized:
+        logger.warning("[FCM] Firebase not initialized — skipping topic unsubscribe.")
+        return False
+
+    try:
+        messaging.unsubscribe_from_topic([token], topic)
+        return True
+    except Exception as exc:
+        logger.error("[FCM] Failed to unsubscribe token from topic %s: %s", topic, exc, exc_info=True)
+        return False
+
+
+def send_topic_fcm_notification(audience, title, body, image_url=None, data=None):
     """
-    Send an FCM push notification to many devices at once.
+    Send an FCM push notification to whichever topic(s) `audience` maps to
+    ('users' -> all_users, 'executives' -> all_executives, 'all' -> both).
 
-    Returns (success_count, failure_count).
-    Invalid/duplicate/blank tokens are skipped before sending.
+    Returns (success_count, failure_count) counted per topic attempted
+    (e.g. 'all' can be at most 2/0) — FCM doesn't report per-device results
+    for topic sends.
     Never raises — logs failures and keeps going.
     """
-    tokens = sorted({str(t).strip() for t in tokens if t and str(t).strip()})
+    topics = AUDIENCE_TOPICS.get(audience, [])
 
-    if not tokens:
-        logger.warning("[FCM] Bulk send skipped — no valid tokens.")
+    if not topics:
+        logger.warning("[FCM] Topic send skipped — unknown audience %r.", audience)
         return 0, 0
 
     if not firebase_initialized:
-        logger.warning("[FCM] Firebase not initialized — skipping bulk notification.")
-        return 0, len(tokens)
+        logger.warning("[FCM] Firebase not initialized — skipping topic notification.")
+        return 0, len(topics)
 
     safe_data = {}
     if data:
@@ -36,32 +79,25 @@ def send_bulk_fcm_notification(tokens, title, body, image_url=None, data=None):
     success_count = 0
     failure_count = 0
 
-    for i in range(0, len(tokens), _BATCH_SIZE):
-        batch = tokens[i:i + _BATCH_SIZE]
-        message = messaging.MulticastMessage(
+    for topic in topics:
+        message = messaging.Message(
             notification=messaging.Notification(
                 title=str(title) if title else "",
                 body=str(body) if body else "",
                 image=image_url or None,
             ),
             data=safe_data,
-            tokens=batch,
+            topic=topic,
         )
         try:
-            response = messaging.send_each_for_multicast(message)
-            success_count += response.success_count
-            failure_count += response.failure_count
-            for token, send_response in zip(batch, response.responses):
-                if not send_response.success:
-                    logger.error(
-                        "[FCM] Bulk send failed for token %s: %s",
-                        token[:20], send_response.exception,
-                    )
+            messaging.send(message)
+            success_count += 1
         except Exception as exc:
-            logger.error("[FCM] Bulk send batch failed: %s", exc, exc_info=True)
-            failure_count += len(batch)
+            logger.error("[FCM] Topic send failed for topic %s: %s", topic, exc, exc_info=True)
+            failure_count += 1
 
     logger.info(
-        "[FCM] Bulk notification complete. success=%s failure=%s", success_count, failure_count
+        "[FCM] Topic notification complete. audience=%s success=%s failure=%s",
+        audience, success_count, failure_count,
     )
     return success_count, failure_count

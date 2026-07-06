@@ -6,54 +6,32 @@ from django.shortcuts import get_object_or_404
 from django.core.files.base import ContentFile
 
 from executives.permissions import IsAdminUser
-from executives.models import Executive
-from users.models import UserProfile
 
 from .models import Notification
 from .serializers import AdminSendNotificationSerializer, AdminNotificationSerializer
-from .utils import send_bulk_fcm_notification
-
-
-def _collect_tokens(audience):
-    tokens = []
-    if audience in ('all', 'users'):
-        tokens += list(
-            UserProfile.objects.exclude(fcm_token__isnull=True)
-            .exclude(fcm_token='')
-            .values_list('fcm_token', flat=True)
-        )
-    if audience in ('all', 'executives'):
-        tokens += list(
-            Executive.objects.exclude(fcm_token__isnull=True)
-            .exclude(fcm_token='')
-            .values_list('fcm_token', flat=True)
-        )
-    return tokens
+from .utils import send_topic_fcm_notification
 
 
 def _dispatch_notification(notification, request):
     """
-    Send `notification` via FCM to its audience's current tokens and
-    record the resulting counts on it. Used by both send and resend.
+    Send `notification` via FCM to its audience's topic(s) and record the
+    resulting counts on it. Used by both send and resend.
     """
     image_url = None
     if notification.image:
         image_url = request.build_absolute_uri(notification.image.url)
 
-    tokens = _collect_tokens(notification.audience)
-
-    success_count, failure_count = send_bulk_fcm_notification(
-        tokens,
+    success_count, failure_count = send_topic_fcm_notification(
+        notification.audience,
         notification.title,
         notification.body,
         image_url=image_url,
         data={"type": "admin_broadcast", "notification_id": notification.id},
     )
 
-    notification.total_recipients = len(tokens)
     notification.success_count = success_count
     notification.failure_count = failure_count
-    notification.save(update_fields=['total_recipients', 'success_count', 'failure_count'])
+    notification.save(update_fields=['success_count', 'failure_count'])
 
 
 class AdminSendNotificationView(APIView):

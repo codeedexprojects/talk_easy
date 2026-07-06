@@ -9,7 +9,13 @@ from rest_framework.permissions import IsAuthenticated,AllowAny
 from users.serializers import *
 from rest_framework_simplejwt.tokens import RefreshToken
 from executives.permissions import IsAdminUser
-from rest_framework.permissions import IsAdminUser   
+from rest_framework.permissions import IsAdminUser
+from notifications.utils import (
+    TOPIC_ALL_MEMBERS,
+    TOPIC_ALL_USERS,
+    subscribe_token_to_topic,
+    unsubscribe_token_from_topic,
+)
 
 class UserProfileRefreshToken(RefreshToken):
     @classmethod
@@ -166,7 +172,8 @@ class VerifyOTPView(APIView):
         otp = request.data.get('otp')
         name = request.data.get('name')
         gender = request.data.get('gender')
-        
+        fcm_token = request.data.get('fcm_token')
+
         if not mobile_number or not otp:
             return Response({
                 'message': 'Mobile number and OTP are required.'
@@ -187,7 +194,15 @@ class VerifyOTPView(APIView):
             if not is_existing_user and name and gender:
                 user.name = name
                 user.gender = gender
-            
+
+            if fcm_token and fcm_token != user.fcm_token:
+                if user.fcm_token:
+                    unsubscribe_token_from_topic(user.fcm_token, TOPIC_ALL_USERS)
+                    unsubscribe_token_from_topic(user.fcm_token, TOPIC_ALL_MEMBERS)
+                user.fcm_token = fcm_token
+                subscribe_token_to_topic(fcm_token, TOPIC_ALL_USERS)
+                subscribe_token_to_topic(fcm_token, TOPIC_ALL_MEMBERS)
+
             user.save()
             
             tokens = create_tokens_for_userprofile(user)
