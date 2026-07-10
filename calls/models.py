@@ -118,11 +118,12 @@ class AgoraCallHistory(models.Model):
             self.duration_seconds = duration_seconds
 
             coins_to_deduct = int(Decimal(duration_seconds) * Decimal(str(self.coins_per_second)))
-            self.coins_deducted = coins_to_deduct
 
             if hasattr(self.user, "stats"):
                 user_stats = UserStats.objects.select_for_update().get(user=self.user)
-                user_stats.coin_balance = max(0, user_stats.coin_balance - coins_to_deduct)
+                actual_debited = min(coins_to_deduct, user_stats.coin_balance)
+                self.coins_deducted = actual_debited
+                user_stats.coin_balance = user_stats.coin_balance - actual_debited
                 user_stats.total_calls += 1
                 user_stats.total_call_seconds += duration_seconds
                 if self.end_time.date() == timezone.now().date():
