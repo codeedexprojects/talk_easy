@@ -71,6 +71,15 @@ class Command(BaseCommand):
                  "killing a call on one momentary network blip (default: 10)",
         )
         parser.add_argument(
+            "--presence-partial-confirm",
+            type=int,
+            default=32,
+            help="Seconds a call may have exactly ONE party present in the Agora "
+                 "channel (the other side left/crashed but this side's app kept "
+                 "the RTC session alive in the background) before it's ended "
+                 "(default: 32)",
+        )
+        parser.add_argument(
             "--loop",
             action="store_true",
             help="Run continuously in this process instead of exiting after one pass.",
@@ -123,6 +132,7 @@ class Command(BaseCommand):
             check_agora_presence=not options["no_agora_check"],
             presence_grace_seconds=options["presence_grace"],
             presence_confirm_seconds=options["presence_confirm"],
+            presence_partial_confirm_seconds=options["presence_partial_confirm"],
         )
 
         for call_id in ended:
