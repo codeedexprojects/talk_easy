@@ -80,17 +80,14 @@ class RegisterOrLoginView(APIView):
             user.otp = otp
             user.save(update_fields=['otp'])
 
-            # Referral for existing users only if they have never been referred
+            # Referral for existing users only if they have never been referred.
+            # Coins are credited later in VerifyOTPView, only once the referred
+            # number actually verifies its OTP — not here, to stop unverified
+            # burner numbers from farming referral coins.
             if referral_code and not ReferralHistory.objects.filter(referred_user=user).exists():
                 try:
                     referrer = ReferralCode.objects.get(code=referral_code).user
                     ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                    
-                    # ✅ Update referrer coins in UserStats
-                    referrer_stats = getattr(referrer, "stats", None)
-                    if referrer_stats:
-                        referrer_stats.coin_balance += 1000
-                        referrer_stats.save(update_fields=['coin_balance'])
                 except ReferralCode.DoesNotExist:
                     return Response({'message': 'Invalid referral code.', 'status': False},
                                     status=status.HTTP_400_BAD_REQUEST)
@@ -133,15 +130,12 @@ class RegisterOrLoginView(APIView):
                 user_stats.coin_balance = initial_coin_balance
                 user_stats.save(update_fields=['coin_balance'])
 
+            # Coins are credited later in VerifyOTPView, only once this number
+            # actually verifies its OTP — not here (see comment above).
             if referral_code and not is_deleted_user:
                 try:
                     referrer = ReferralCode.objects.get(code=referral_code).user
                     ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                    
-                    referrer_stats = getattr(referrer, "stats", None)
-                    if referrer_stats:
-                        referrer_stats.coin_balance += 1000
-                        referrer_stats.save(update_fields=['coin_balance'])
                 except ReferralCode.DoesNotExist:
                     return Response({'message': 'Invalid referral code.', 'status': False},
                                     status=status.HTTP_400_BAD_REQUEST)
@@ -204,7 +198,18 @@ class VerifyOTPView(APIView):
                 subscribe_token_to_topic(fcm_token, TOPIC_ALL_MEMBERS)
 
             user.save()
-            
+
+            # Pay out the referrer's coins only on this user's first-ever
+            # successful OTP verification, so unverified numbers can't farm
+            # referral coins (see RegisterOrLoginView).
+            if not is_existing_user:
+                referral = ReferralHistory.objects.filter(referred_user=user).select_related('referrer').first()
+                if referral:
+                    referrer_stats = getattr(referral.referrer, "stats", None)
+                    if referrer_stats:
+                        referrer_stats.coin_balance += 1000
+                        referrer_stats.save(update_fields=['coin_balance'])
+
             tokens = create_tokens_for_userprofile(user)
             
             return Response({

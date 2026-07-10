@@ -490,8 +490,8 @@ from rest_framework import status
 from django.db import transaction
 
 class AdminRechargeView(APIView):
-    permission_classes = []
-    authentication_classes = []
+    permission_classes = [IsAdminUser]
+    authentication_classes = [JWTAuthentication]
 
     def post(self, request):
         user_id = request.data.get("user_id")
