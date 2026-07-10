@@ -90,7 +90,16 @@ class AgoraCallHistory(models.Model):
         base_start = self.joined_at or self.start_time
         return (ended_at - base_start) if ended_at and base_start else timezone.timedelta()
 
-    def end_call(self, ender="client", request_id=None):
+    def end_call(self, ender="client", request_id=None, effective_end_time=None):
+        """
+        effective_end_time: bill/log the call as if it ended at this timestamp
+        instead of right now. Used by the stale-call reaper's presence checks —
+        by the time a confirm window (e.g. the 32s partial-presence grace)
+        elapses and this actually runs, real time has moved past the moment the
+        other party genuinely left. Without this, the still-present side would
+        be billed/paid for the confirm-window seconds on top of a call that was
+        effectively already over.
+        """
         from users.models import UserStats
         from executives.models import Executive, ExecutiveStats
 
@@ -104,7 +113,7 @@ class AgoraCallHistory(models.Model):
                 self.refresh_from_db()
                 return
 
-            now_time = timezone.now()
+            now_time = effective_end_time or timezone.now()
             self.end_time = now_time
 
             if not self.joined_at:
@@ -311,7 +320,12 @@ class AgoraCallHistory(models.Model):
                             continue
 
                         if (timezone.now() - call.presence_partial_since).total_seconds() >= presence_partial_confirm_seconds:
-                            call.end_call(ender="agora_presence_partial")
+                            # Bill/pay up to the moment the other side was first seen
+                            # missing, not up to now — otherwise the still-present side
+                            # is charged/paid for the whole confirm window on top of a
+                            # call that was effectively already over.
+                            call.end_call(ender="agora_presence_partial",
+                                           effective_end_time=call.presence_partial_since)
                             ended.append(call.id)
                         continue
 
@@ -324,7 +338,9 @@ class AgoraCallHistory(models.Model):
 
                     if (timezone.now() - call.presence_missed_since).total_seconds() >= presence_confirm_seconds:
                         # Missing on this AND a prior check, confirm_seconds apart — genuinely gone.
-                        call.end_call(ender="agora_presence_check")
+                        # Same reasoning: bill up to when it was first seen missing.
+                        call.end_call(ender="agora_presence_check",
+                                       effective_end_time=call.presence_missed_since)
                         ended.append(call.id)
 
         heartbeat_cutoff = timezone.now() - timedelta(seconds=stale_after_seconds)
@@ -342,7 +358,17 @@ class AgoraCallHistory(models.Model):
 
         for call_id in stale_joined_ids:
             call = AgoraCallHistory.objects.get(id=call_id)
-            call.end_call(ender="system_timeout")
+            # If we have a real last-heartbeat signal, bill up to that moment
+            # rather than now (same reasoning as the presence-check paths
+            # above). If a heartbeat was NEVER received at all, we have no
+            # confident signal of when it actually died — deliberately keep
+            # billing up to now in that case, per the generous-fallback
+            # rationale in this method's docstring (avoids undercharging a
+            # call that may have genuinely run the whole fallback window).
+            call.end_call(
+                ender="system_timeout",
+                effective_end_time=call.last_heartbeat,
+            )
             ended.append(call_id)
 
         # Never-answered calls: no one joined, and ringing/pending has gone stale.
