@@ -51,14 +51,6 @@ class CallInitiateView(APIView):
             channel_name = serializer.validated_data['channel_name']
             caller_uid = serializer.validated_data['caller_uid']
 
-            # Get executive
-            executive = get_object_or_404(Executive, id=executive_id)
-
-            # Validate executive availability
-            validation_error = self.validate_executive(executive)
-            if validation_error:
-                return validation_error
-
             user = request.user
             try:
                 user_stats = user.stats
@@ -68,38 +60,51 @@ class CallInitiateView(APIView):
             if user_stats.coin_balance < 180:
                 return Response({"message": "At least 180 coins required to start a call"}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
-            # Mark executive as on call
-            executive.on_call = True
-            executive.save(update_fields=["on_call"])
+            # The availability check and the on_call flip must be atomic and
+            # row-locked together, otherwise two near-simultaneous requests for
+            # the same executive can both read on_call=False before either
+            # commits, and both get through (double-booking the executive).
+            with transaction.atomic():
+                executive = get_object_or_404(
+                    Executive.objects.select_for_update(), id=executive_id
+                )
 
-            # Generate caller token
-            caller_token = generate_agora_token(channel_name, caller_uid)
+                validation_error = self.validate_executive(executive)
+                if validation_error:
+                    return validation_error
 
-            # Calculate callee_uid (executive's UID)
-            callee_uid = caller_uid + 1000
-            # Generate executive token with the predetermined UID
-            executive_token = generate_agora_token(channel_name, callee_uid)
+                # Mark executive as on call
+                executive.on_call = True
+                executive.save(update_fields=["on_call"])
 
-            # Get executive stats
-            exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
-            rate_per_minute = get_current_amount_per_min(executive)
-            coins_per_second = exec_stats.coins_per_second
-            executive_code = executive.executive_id
+                # Generate caller token
+                caller_token = generate_agora_token(channel_name, caller_uid)
 
-            # Create call history
-            call_history = AgoraCallHistory.objects.create(
-                executive=executive,
-                channel_name=channel_name,
-                uid=caller_uid,
-                callee_uid=callee_uid,
-                token=caller_token,
-                executive_token=executive_token,
-                status="ringing",
-                is_active=False,
-                user=user,
-                coins_per_second=coins_per_second,
-                amount_per_min=rate_per_minute
-            )
+                # Calculate callee_uid (executive's UID)
+                callee_uid = caller_uid + 1000
+                # Generate executive token with the predetermined UID
+                executive_token = generate_agora_token(channel_name, callee_uid)
+
+                # Get executive stats
+                exec_stats, _ = ExecutiveStats.objects.get_or_create(executive=executive)
+                rate_per_minute = get_current_amount_per_min(executive)
+                coins_per_second = exec_stats.coins_per_second
+                executive_code = executive.executive_id
+
+                # Create call history
+                call_history = AgoraCallHistory.objects.create(
+                    executive=executive,
+                    channel_name=channel_name,
+                    uid=caller_uid,
+                    callee_uid=callee_uid,
+                    token=caller_token,
+                    executive_token=executive_token,
+                    status="ringing",
+                    is_active=False,
+                    user=user,
+                    coins_per_second=coins_per_second,
+                    amount_per_min=rate_per_minute
+                )
 
             # Send WebSocket notification — logs internally if it fails
             self.send_incoming_call_notification(executive_id, call_history, user)

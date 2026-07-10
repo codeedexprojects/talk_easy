@@ -56,6 +56,21 @@ class Command(BaseCommand):
                  "AGORA_CUSTOMER_ID/SECRET) and rely only on heartbeat/timeout logic.",
         )
         parser.add_argument(
+            "--presence-grace",
+            type=int,
+            default=20,
+            help="Seconds after joined_at before the Agora presence check is allowed to "
+                 "act on a call, so the RTC handshake has time to finish (default: 20)",
+        )
+        parser.add_argument(
+            "--presence-confirm",
+            type=int,
+            default=10,
+            help="Seconds a call must stay absent from Agora's channel presence, "
+                 "confirmed across a follow-up check, before it's ended — avoids "
+                 "killing a call on one momentary network blip (default: 10)",
+        )
+        parser.add_argument(
             "--loop",
             action="store_true",
             help="Run continuously in this process instead of exiting after one pass.",
@@ -106,6 +121,8 @@ class Command(BaseCommand):
             no_heartbeat_fallback_seconds=no_heartbeat_fallback,
             ringing_timeout_seconds=ringing_timeout,
             check_agora_presence=not options["no_agora_check"],
+            presence_grace_seconds=options["presence_grace"],
+            presence_confirm_seconds=options["presence_confirm"],
         )
 
         for call_id in ended:
