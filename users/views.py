@@ -96,7 +96,6 @@ class RegisterOrLoginView(APIView):
                 'message': 'Login OTP sent to your mobile number.',
                 'user_id': user.id,
                 'mobile_number': user.mobile_number,
-                'otp': user.otp,
                 'status': True,
                 'is_existing_user': True,
                 'user_main_id': user.user_id,
@@ -146,8 +145,7 @@ class RegisterOrLoginView(APIView):
                 'is_existing_user': False,
                 'user_id': user.id,
                 'mobile_number': user.mobile_number,
-                'otp': user.otp,
-                'coin_balance': user_stats.coin_balance, 
+                'coin_balance': user_stats.coin_balance,
                 'user_main_id': user.user_id,
             }, status=status.HTTP_200_OK)
 

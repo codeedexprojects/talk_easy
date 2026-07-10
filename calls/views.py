@@ -318,8 +318,13 @@ class AgoraWebhookView(APIView):
 
         elif event in ("user.left", "channel.idle", "channel.destroyed"):
             # Use an idempotent request_id derived from event+timestamp if provided
-            req_id = f"webhook:{event}:{payload.get('timestamp', timezone.now().isoformat())}"
-            call.end_call(ender="webhook", request_id=req_id)
+            webhook_timestamp = payload.get("timestamp")
+            req_id = f"webhook:{event}:{webhook_timestamp or timezone.now().isoformat()}"
+            # Bill up to Agora's own reported moment the party actually left,
+            # not whenever we happened to process this webhook — this is the
+            # closest thing to an exact, real-time end time available, since
+            # it comes from Agora's servers rather than our own polling loop.
+            call.end_call(ender="webhook", request_id=req_id, effective_end_time=webhook_timestamp)
 
         # You may persist heartbeat / last activity timestamp
         call.last_heartbeat = timezone.now()
