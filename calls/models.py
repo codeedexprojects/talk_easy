@@ -52,6 +52,13 @@ class AgoraCallHistory(models.Model):
                    "channel; only ends the call once this has held for a confirm "
                    "window, so one momentary blip doesn't kill a healthy call."
     )
+    presence_partial_since = models.DateTimeField(
+        null=True, blank=True,
+        help_text="First time the Agora presence check found exactly ONE party "
+                   "still in the channel (the other left/crashed but this side's "
+                   "app kept the RTC session alive in the background); ends the "
+                   "call once this has held for a confirm window."
+    )
     duration_seconds = models.PositiveIntegerField(default=0)
     executive_earnings = models.DecimalField(max_digits=12, decimal_places=2, default=0.0)
 
@@ -218,7 +225,8 @@ class AgoraCallHistory(models.Model):
     @staticmethod
     def end_stale_ongoing_calls(stale_after_seconds=25, no_heartbeat_fallback_seconds=300,
                                  ringing_timeout_seconds=30, check_agora_presence=True,
-                                 presence_grace_seconds=20, presence_confirm_seconds=10):
+                                 presence_grace_seconds=20, presence_confirm_seconds=10,
+                                 presence_partial_confirm_seconds=32):
         """Force-end calls stuck in 'joined'/'ringing'/'pending' that have gone stale.
 
         Covers app crashes / network drops where neither the client nor the
@@ -237,23 +245,30 @@ class AgoraCallHistory(models.Model):
 
         If check_agora_presence is True and Agora RESTful credentials are
         configured, joined calls are checked directly against Agora's channel
-        presence API (ground truth from Agora's own servers). A positive
-        confirmation (either party still in the channel) refreshes
-        last_heartbeat, so a healthy call confirmed by Agora is protected from
-        the no-heartbeat fallback below even if the app itself never sends a
-        heartbeat ping. A negative result (neither party present) is NOT acted
-        on immediately — presence_grace_seconds gives a just-joined call time
-        to finish the RTC handshake, and presence_confirm_seconds requires the
-        absence to persist across a follow-up check before ending the call, so
-        one momentary blip (network handoff, transient Agora API hiccup)
-        doesn't kill a call that reconnects a second later.
+        presence API (ground truth from Agora's own servers), distinguishing
+        three states:
+          - BOTH parties present: confirmed fully alive. Refreshes
+            last_heartbeat, protecting the call from the no-heartbeat fallback
+            below even if the app itself never sends a heartbeat ping.
+          - EXACTLY ONE party present: the other side left/crashed but this
+            side's app kept the RTC session alive in the background (e.g. a
+            foreground service survives the task being swiped away). Not
+            acted on immediately — presence_partial_confirm_seconds requires
+            this lopsided state to persist across a follow-up check before
+            ending the call, in case the missing side reconnects.
+          - NEITHER present: presence_grace_seconds gives a just-joined call
+            time to finish the RTC handshake, and presence_confirm_seconds
+            requires the absence to persist across a follow-up check before
+            ending the call, so one momentary blip (network handoff,
+            transient Agora API hiccup) doesn't kill a call that reconnects a
+            second later.
         """
         ended = []
         # Calls presence-check gave a definitive (non-None) answer for this cycle —
-        # confirmed alive, first-miss pending confirmation, or ended. All of these
-        # are authoritative decisions that must NOT be second-guessed by the blunter
-        # no-heartbeat fallback query below (otherwise a call presence-check is
-        # patiently waiting to confirm still gets killed by that separate timer).
+        # confirmed alive, or a pending/confirmed miss (full or partial). All of
+        # these are authoritative decisions that must NOT be second-guessed by the
+        # blunter no-heartbeat fallback query below (otherwise a call presence-check
+        # is patiently waiting to confirm still gets killed by that separate timer).
         presence_evaluated = []
 
         if check_agora_presence:
@@ -271,14 +286,36 @@ class AgoraCallHistory(models.Model):
                         continue
                     presence_evaluated.append(call.id)
                     expected_uids = {str(call.uid), str(call.callee_uid)}
-                    if expected_uids & active_uids:
-                        # Confirmed alive by Agora's own servers — counts as a heartbeat,
-                        # and clears any pending miss so a later blip starts counting fresh.
+                    present_count = len(expected_uids & active_uids)
+
+                    if present_count == 2:
+                        # Both confirmed alive by Agora's own servers — counts as a
+                        # heartbeat, and clears any pending miss so a later blip
+                        # starts counting fresh.
                         call.last_heartbeat = timezone.now()
                         call.presence_missed_since = None
-                        call.save(update_fields=["last_heartbeat", "presence_missed_since"])
+                        call.presence_partial_since = None
+                        call.save(update_fields=[
+                            "last_heartbeat", "presence_missed_since", "presence_partial_since",
+                        ])
                         continue
 
+                    if present_count == 1:
+                        # Only one side is actually still connected — the other
+                        # left/crashed, but this side's app/foreground service kept
+                        # the RTC session alive. Give it presence_partial_confirm_seconds
+                        # in case the missing side reconnects, then end the call.
+                        if call.presence_partial_since is None:
+                            call.presence_partial_since = timezone.now()
+                            call.save(update_fields=["presence_partial_since"])
+                            continue
+
+                        if (timezone.now() - call.presence_partial_since).total_seconds() >= presence_partial_confirm_seconds:
+                            call.end_call(ender="agora_presence_partial")
+                            ended.append(call.id)
+                        continue
+
+                    # present_count == 0: neither party is in the channel.
                     if call.presence_missed_since is None:
                         # First time we've seen it missing — wait for confirmation, don't end yet.
                         call.presence_missed_since = timezone.now()
