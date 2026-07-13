@@ -1016,6 +1016,8 @@ class ExecutiveAnalyticsView(APIView):
 
     def get(self, request):
         try:
+            from payments.models import ExecutivePayoutRedeem
+
             today = timezone.now()
             ten_days_ago = today - timedelta(days=10)
 
@@ -1026,6 +1028,17 @@ class ExecutiveAnalyticsView(APIView):
             suspended_executives = Executive.objects.filter(is_suspended=True).count()
             recent_executives = Executive.objects.filter(created_at__gte=ten_days_ago).count()
 
+            total_earned = ExecutiveStats.objects.aggregate(
+                total=Coalesce(Sum('total_earnings'), Decimal('0.00'))
+            )['total']
+
+            total_withdrawn = ExecutivePayoutRedeem.objects.filter(status='paid').aggregate(
+                total=Coalesce(
+                    Sum(Coalesce('approved_amount', 'redemption_option__amount')),
+                    Decimal('0.00')
+                )
+            )['total']
+
             data = {
                 "total_executives": total_executives,
                 "online_executives": online_executives,
@@ -1033,6 +1046,8 @@ class ExecutiveAnalyticsView(APIView):
                 "banned_executives": banned_executives,
                 "suspended_executives": suspended_executives,
                 "recently_joined_last_10_days": recent_executives,
+                "total_earned_amount": total_earned,
+                "total_withdrawn_amount": total_withdrawn,
             }
 
             return Response(data, status=status.HTTP_200_OK)

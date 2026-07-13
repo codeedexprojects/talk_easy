@@ -92,12 +92,18 @@ class CarouselImageSerializer(serializers.ModelSerializer):
 class ReferralHistorySerializer(serializers.ModelSerializer):
     referrer_id = serializers.IntegerField(source='referrer.id', read_only=True)
     referrer_name = serializers.CharField(source='referrer.name', read_only=True)
+    referrer_user_id = serializers.CharField(source='referrer.user_id', read_only=True)
     referred_user_id = serializers.IntegerField(source='referred_user.id', read_only=True)
     referred_user_name = serializers.CharField(source='referred_user.name', read_only=True)
+    referred_user_user_id = serializers.CharField(source='referred_user.user_id', read_only=True)
 
     class Meta:
         model = ReferralHistory
-        fields = ['id', 'referrer_id', 'referrer_name', 'referred_user_id', 'referred_user_name', 'referred_at']
+        fields = [
+            'id', 'referrer_id', 'referrer_name', 'referrer_user_id',
+            'referred_user_id', 'referred_user_name', 'referred_user_user_id',
+            'referred_at',
+        ]
 
 
 class UserStatsSerializer(serializers.ModelSerializer):

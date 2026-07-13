@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from executives.models import *
 from django.contrib.auth.hashers import make_password
+from decimal import Decimal
 
 
 class LanguageSerializer(serializers.ModelSerializer):
@@ -63,6 +64,8 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         required=False
     )
     coins_per_second = serializers.SerializerMethodField()
+    total_earned_amount = serializers.SerializerMethodField()
+    total_withdrawn_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Executive
@@ -72,7 +75,8 @@ class ExecutiveSerializer(serializers.ModelSerializer):
             'online', 'is_verified', 'is_suspended', 'is_banned', 'is_logged_out',
             'created_at', 'device_id', 'last_login', 'manager_executive',
             'account_number', 'ifsc_code', 'stats', 'is_offline', 'is_online',
-            'on_call', 'password', 'languages_known', 'coins_per_second'
+            'on_call', 'password', 'languages_known', 'coins_per_second',
+            'total_earned_amount', 'total_withdrawn_amount'
         ]
         read_only_fields = ['id', 'created_at', 'last_login']
 
@@ -81,6 +85,22 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'stats'):
             return obj.stats.coins_per_second
         return None
+
+    def get_total_earned_amount(self, obj):
+        if hasattr(obj, 'stats'):
+            return obj.stats.total_earnings
+        return Decimal('0.00')
+
+    def get_total_withdrawn_amount(self, obj):
+        from django.db.models import Sum
+        from django.db.models.functions import Coalesce
+        result = obj.payout_redeems.filter(status='paid').aggregate(
+            total=Coalesce(
+                Sum(Coalesce('approved_amount', 'redemption_option__amount')),
+                Decimal('0.00')
+            )
+        )
+        return result['total']
 
     def create(self, validated_data):
         languages = validated_data.pop("languages_known", [])
