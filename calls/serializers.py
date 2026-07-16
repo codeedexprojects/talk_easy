@@ -48,27 +48,12 @@ class EndCallSerializer(serializers.Serializer):
     channel_name = serializers.CharField(max_length=100)
     request_id = serializers.CharField(max_length=64, required=False)  
 
-class AgoraWebhookPayloadSerializer(serializers.Serializer):
-    """Nested `payload` object inside an Agora Notifications callback body."""
-    channelName = serializers.CharField()
-    uid = serializers.IntegerField(required=False)
-    ts = serializers.IntegerField(required=False)  # Unix seconds, when the event occurred on Agora's RTC server
-    clientSeq = serializers.IntegerField(required=False)
-    lastUid = serializers.IntegerField(required=False)  # present only on eventType 102 (channel destroy)
-
-
 class WebhookSerializer(serializers.Serializer):
-    """
-    Matches Agora's real Notifications callback body exactly (see
-    https://docs.agora.io — 'Receive notifications about channel events').
-    eventType is numeric — e.g. 107/108 for communication-mode join/leave,
-    102 for channel destroy — NOT the friendly strings previously assumed here.
-    """
-    noticeId = serializers.CharField(required=False)
-    productId = serializers.IntegerField(required=False)
-    eventType = serializers.IntegerField()
-    notifyMs = serializers.IntegerField(required=False)  # Unix ms when Agora SENT the callback (not when the event happened)
-    payload = AgoraWebhookPayloadSerializer()
+    eventType = serializers.CharField()
+    channelName = serializers.CharField()
+    uid = serializers.CharField()
+    timestamp = serializers.DateTimeField(required=False)
+    signature = serializers.CharField(required=False)  # if you sign with HMAC
 
 
 class CallInitiateSerializer(serializers.Serializer):

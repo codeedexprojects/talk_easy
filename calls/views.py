@@ -1,6 +1,4 @@
 # calls/views.py
-import hashlib
-import hmac
 import logging
 from django.conf import settings
 from django.db import transaction
@@ -296,40 +294,17 @@ class MarkJoinedView(APIView):
         return Response({"ok": True})
 
 
-# Agora Notifications channel event types (numeric — see Agora's "Receive
-# notifications about channel events" doc). NOT the same as the friendly
-# strings ("user.joined" etc.) this file used to assume.
-AGORA_EVENT_CHANNEL_CREATE = 101
-AGORA_EVENT_CHANNEL_DESTROY = 102
-AGORA_EVENT_BROADCASTER_JOIN = 103
-AGORA_EVENT_BROADCASTER_LEAVE = 104
-AGORA_EVENT_AUDIENCE_JOIN = 105
-AGORA_EVENT_AUDIENCE_LEAVE = 106
-AGORA_EVENT_COMMUNICATION_JOIN = 107
-AGORA_EVENT_COMMUNICATION_LEAVE = 108
-AGORA_EVENT_ROLE_CHANGE_TO_BROADCASTER = 111
-AGORA_EVENT_ROLE_CHANGE_TO_AUDIENCE = 112
-
-AGORA_JOIN_EVENTS = {AGORA_EVENT_BROADCASTER_JOIN, AGORA_EVENT_AUDIENCE_JOIN, AGORA_EVENT_COMMUNICATION_JOIN}
-AGORA_LEAVE_EVENTS = {AGORA_EVENT_BROADCASTER_LEAVE, AGORA_EVENT_AUDIENCE_LEAVE, AGORA_EVENT_COMMUNICATION_LEAVE,
-                      AGORA_EVENT_CHANNEL_DESTROY}
-
-
 class AgoraWebhookView(APIView):
 
-    authentication_classes = []           # webhook comes from Agora's servers, not a logged-in user
+    authentication_classes = []           # webhook usually comes unauthenticated
     permission_classes = [IsAuthenticatedOrService]
 
     def post(self, request):
-        if not self._verify_signature(request):
-            return Response({"error": "Invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
-
         s = WebhookSerializer(data=request.data)
         s.is_valid(raise_exception=True)
-        data = s.validated_data
+        payload = s.validated_data
 
-        event_type = data["eventType"]
-        payload = data["payload"]
+        event = payload["eventType"]
         channel = payload["channelName"]
 
         try:
@@ -338,44 +313,18 @@ class AgoraWebhookView(APIView):
             # Might be a late callback for a deleted call; ignore
             return Response({"ok": True})
 
-        if event_type in AGORA_JOIN_EVENTS:
+        if event in ("user.joined", "channel.firstUserJoined"):
             call.mark_joined()
 
-        elif event_type in AGORA_LEAVE_EVENTS:
-            # Dedupe on noticeId — Agora explicitly documents that the same
-            # event may be delivered more than once for reliability.
-            notice_id = data.get("noticeId")
-            req_id = f"webhook:{event_type}:{notice_id or payload.get('ts') or timezone.now().isoformat()}"
-
-            # payload.ts is the Unix-seconds timestamp of when the event
-            # actually happened on Agora's own RTC server — the closest thing
-            # to an exact, real-time end time available, since it comes from
-            # Agora rather than our own polling loop.
-            event_ts = payload.get("ts")
-            effective_end_time = (
-                timezone.datetime.fromtimestamp(event_ts, tz=timezone.get_current_timezone())
-                if event_ts else None
-            )
-            call.end_call(ender="webhook", request_id=req_id, effective_end_time=effective_end_time)
-
-        return Response({"ok": True})
-
-    def _verify_signature(self, request):
-        secret = getattr(settings, "AGORA_WEBHOOK_SECRET", None)
-        if not secret:
-            logger.warning("[AGORA WEBHOOK] AGORA_WEBHOOK_SECRET not configured — skipping signature verification")
-            return True
-
-        signature = request.headers.get("Agora-Signature-V2")
-        if not signature:
-            logger.warning("[AGORA WEBHOOK] Missing Agora-Signature-V2 header")
-            return False
-
-        expected = hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, signature):
-            logger.warning("[AGORA WEBHOOK] Signature mismatch")
-            return False
-        return True
+        elif event in ("user.left", "channel.idle", "channel.destroyed"):
+            # Use an idempotent request_id derived from event+timestamp if provided
+            webhook_timestamp = payload.get("timestamp")
+            req_id = f"webhook:{event}:{webhook_timestamp or timezone.now().isoformat()}"
+            # Bill up to Agora's own reported moment the party actually left,
+            # not whenever we happened to process this webhook — this is the
+            # closest thing to an exact, real-time end time available, since
+            # it comes from Agora's servers rather than our own polling loop.
+            call.end_call(ender="webhook", request_id=req_id, effective_end_time=webhook_timestamp)
 
         # You may persist heartbeat / last activity timestamp
         call.last_heartbeat = timezone.now()
