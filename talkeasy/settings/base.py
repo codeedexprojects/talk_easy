@@ -167,12 +167,6 @@ AGORA_TOKEN_TTL_SECONDS = config('AGORA_TOKEN_TTL_SECONDS', default=3600, cast=i
 AGORA_CUSTOMER_ID = config('AGORA_CUSTOMER_ID', default=None)
 AGORA_CUSTOMER_SECRET = config('AGORA_CUSTOMER_SECRET', default=None)
 
-# Agora Notifications (channel event webhooks) — the "Secret" shown in
-# Agora Console under Project > Notifications, used to verify the
-# Agora-Signature-V2 (HMAC-SHA256) header on incoming webhook callbacks.
-# Optional: leave unset to disable verification (NOT recommended in production).
-AGORA_WEBHOOK_SECRET = config('AGORA_WEBHOOK_SECRET', default=None)
-
 # Payment Configuration
 RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID')
 RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET')
