@@ -1163,9 +1163,9 @@ class FilteredUserListView(APIView):
         else:
             return Response({"error": "Invalid or missing 'status' parameter. Use 'banned', 'suspended', or 'active'."}, status=400)
 
-        serializer = UserProfileSerializer(users, many=True)
+        serializer = UserProfileSerializerAdmin(users, many=True)
         return Response(serializer.data)
-    
+
 
 class UserSpecificRatingsView(APIView):
     permission_classes = [IsAdminUser]
@@ -1218,7 +1218,7 @@ class UserSearchView(APIView):
         if not users.exists():
             return Response({"message": "No users found."}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = UserProfileSerializer(users, many=True)
+        serializer = UserProfileSerializerAdmin(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     
