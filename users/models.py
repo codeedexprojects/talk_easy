@@ -139,7 +139,7 @@ def create_referral_code(sender, instance, created, **kwargs):
     if created:
         code = f"TE{uuid.uuid4().hex[:6].upper()}"
         ReferralCode.objects.create(user=instance, code=code)
-    
+
 class ReferralHistory(models.Model):
     referrer = models.ForeignKey('UserProfile', on_delete=models.CASCADE, related_name='referrals_made')
     referred_user = models.OneToOneField('UserProfile',on_delete=models.CASCADE, related_name='referral_info' )
