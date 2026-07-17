@@ -34,7 +34,8 @@ class RegisterOrLoginView(APIView):
 
     def post(self, request, *args, **kwargs):
         mobile_number = request.data.get('mobile_number')
-        referral_code = request.data.get('referral_code')
+        # Referral feature disabled — no longer capturing referral codes at signup.
+        # referral_code = request.data.get('referral_code')
         otp = str(random.randint(100000, 999999))
 
         if not mobile_number:
@@ -80,17 +81,14 @@ class RegisterOrLoginView(APIView):
             user.otp = otp
             user.save(update_fields=['otp'])
 
-            # Referral for existing users only if they have never been referred.
-            # Coins are credited later in VerifyOTPView, only once the referred
-            # number actually verifies its OTP — not here, to stop unverified
-            # burner numbers from farming referral coins.
-            if referral_code and not ReferralHistory.objects.filter(referred_user=user).exists():
-                try:
-                    referrer = ReferralCode.objects.get(code=referral_code).user
-                    ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                except ReferralCode.DoesNotExist:
-                    return Response({'message': 'Invalid referral code.', 'status': False},
-                                    status=status.HTTP_400_BAD_REQUEST)
+            # Referral feature disabled — no longer creating referral history at signup.
+            # if referral_code and not ReferralHistory.objects.filter(referred_user=user).exists():
+            #     try:
+            #         referrer = ReferralCode.objects.get(code=referral_code).user
+            #         ReferralHistory.objects.create(referrer=referrer, referred_user=user)
+            #     except ReferralCode.DoesNotExist:
+            #         return Response({'message': 'Invalid referral code.', 'status': False},
+            #                         status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
                 'message': 'Login OTP sent to your mobile number.',
@@ -129,15 +127,14 @@ class RegisterOrLoginView(APIView):
                 user_stats.coin_balance = initial_coin_balance
                 user_stats.save(update_fields=['coin_balance'])
 
-            # Coins are credited later in VerifyOTPView, only once this number
-            # actually verifies its OTP — not here (see comment above).
-            if referral_code and not is_deleted_user:
-                try:
-                    referrer = ReferralCode.objects.get(code=referral_code).user
-                    ReferralHistory.objects.create(referrer=referrer, referred_user=user)
-                except ReferralCode.DoesNotExist:
-                    return Response({'message': 'Invalid referral code.', 'status': False},
-                                    status=status.HTTP_400_BAD_REQUEST)
+            # Referral feature disabled — no longer creating referral history at signup.
+            # if referral_code and not is_deleted_user:
+            #     try:
+            #         referrer = ReferralCode.objects.get(code=referral_code).user
+            #         ReferralHistory.objects.create(referrer=referrer, referred_user=user)
+            #     except ReferralCode.DoesNotExist:
+            #         return Response({'message': 'Invalid referral code.', 'status': False},
+            #                         status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
                 'message': 'Registration OTP sent to your mobile number.',
@@ -306,13 +303,14 @@ class UserReferralCodeView(APIView):
     def get(self, request):
         user = request.user
         try:
-            referral_code = user.referral_code  
+            referral_code = user.referral_code
         except ReferralCode.DoesNotExist:
             return Response({'message': 'Referral code not found for this user.'}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = ReferralCodeSerializer(referral_code)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
+
+
 class UserCoinBalanceView(APIView):
     permission_classes = [IsAuthenticated]
 
