@@ -75,6 +75,11 @@ def generate_executive_id():
 from rest_framework.exceptions import ValidationError
 
 class RegisterExecutiveView(generics.CreateAPIView):
+    """
+    LEGACY / CURRENTLY LIVE endpoint — untouched, still used by the app in production.
+    Creates the executive record only. No OTP is sent here; OTP happens at login
+    (see legacy ExecutiveLoginView / ExecutiveVerifyOTPView below).
+    """
     permission_classes = []
     queryset = Executive.objects.all()
     serializer_class = ExecutiveSerializer
@@ -113,7 +118,13 @@ class RegisterExecutiveView(generics.CreateAPIView):
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from django.core.cache import cache
+
+
 class ExecutiveLoginView(APIView):
+    """
+    LEGACY / CURRENTLY LIVE endpoint — untouched, still used by the app in production.
+    mobile_number + password -> OTP sent -> ExecutiveVerifyOTPView completes login.
+    """
     permission_classes = []
 
     def post(self, request):
@@ -180,6 +191,10 @@ class ExecutiveLoginView(APIView):
 
 
 class ExecutiveVerifyOTPView(APIView):
+    """
+    LEGACY / CURRENTLY LIVE endpoint — untouched, still used by the app in production.
+    Second step of ExecutiveLoginView above.
+    """
     permission_classes = []
 
     def post(self, request):
@@ -282,7 +297,231 @@ class ExecutiveVerifyOTPView(APIView):
             "expires_at": new_token.expires_at
         }, status=status.HTTP_200_OK)
 
-    
+
+# ─────────────────────────────────────────────────────────────
+# NEW (v2) executive auth flow — separate endpoints, does not
+# touch the legacy ones above. OTP moves to registration; login
+# becomes mobile_number + password only. Switch the app over to
+# these once the new build is ready to go live.
+# ─────────────────────────────────────────────────────────────
+
+def _issue_executive_tokens(executive, fcm_token):
+    ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
+        revoked=True, revoked_at=timezone.now()
+    )
+
+    new_token = ExecutiveToken.objects.create(
+        executive=executive,
+        access_token=str(uuid.uuid4()),
+        refresh_token=str(uuid.uuid4()),
+        expires_at=timezone.now() + timedelta(days=7)
+    )
+
+    executive.online = True
+    executive.is_logged_out = False
+
+    if fcm_token and fcm_token != executive.fcm_token:
+        if executive.fcm_token:
+            unsubscribe_token_from_topic(executive.fcm_token, TOPIC_ALL_EXECUTIVES)
+            unsubscribe_token_from_topic(executive.fcm_token, TOPIC_ALL_MEMBERS)
+        executive.fcm_token = fcm_token
+        subscribe_token_to_topic(fcm_token, TOPIC_ALL_EXECUTIVES)
+        subscribe_token_to_topic(fcm_token, TOPIC_ALL_MEMBERS)
+
+    executive.save()
+    return new_token
+
+
+class SendRegistrationOTPView(APIView):
+    """
+    NEW v2 step 1: request an OTP for a mobile number BEFORE any account exists.
+    Follow up with RegisterExecutiveV2View, passing the same mobile_number + otp
+    along with the rest of the registration data.
+    """
+    permission_classes = []
+
+    def post(self, request):
+        mobile_number = request.data.get("mobile_number")
+        if not mobile_number:
+            return Response({"message": "Mobile number is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if Executive.objects.filter(mobile_number=mobile_number).exists():
+            return Response(
+                {"message": "This mobile number is already registered."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        ExecutivePendingRegistrationOTP.objects.filter(mobile_number=mobile_number).delete()
+
+        if is_test_number(mobile_number):
+            otp = "123456"
+            otp_sent = True
+        else:
+            otp = str(random.randint(100000, 999999))
+            otp_sent = send_otp(mobile_number, otp)
+
+        ExecutivePendingRegistrationOTP.objects.create(
+            mobile_number=mobile_number,
+            otp=otp,
+            expires_at=timezone.now() + timedelta(minutes=10)
+        )
+
+        message = (
+            "OTP sent to your mobile number."
+            if otp_sent else
+            "We couldn't send the OTP SMS right now. Please try again shortly."
+        )
+
+        return Response({"message": message, "otp_sent": otp_sent}, status=status.HTTP_200_OK)
+
+
+class RegisterExecutiveV2View(generics.CreateAPIView):
+    """
+    NEW v2 step 2: creates the executive ONLY if a valid, unexpired OTP was
+    requested for this mobile_number via SendRegistrationOTPView. No account
+    is created for an invalid/expired/missing OTP.
+    """
+    permission_classes = []
+    queryset = Executive.objects.all()
+    serializer_class = ExecutiveSerializer
+
+    def create(self, request, *args, **kwargs):
+        mobile_number = request.data.get("mobile_number")
+        otp = request.data.get("otp")
+
+        if not mobile_number or not otp:
+            return Response(
+                {"message": "Mobile number and OTP are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pending = ExecutivePendingRegistrationOTP.objects.filter(
+            mobile_number=mobile_number
+        ).order_by('-created_at').first()
+
+        if not pending or pending.is_expired() or str(pending.otp) != str(otp):
+            return Response(
+                {"message": "Invalid or expired OTP. Please request a new one."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        data = request.data.copy()
+        data['executive_id'] = generate_executive_id()
+        data.pop('otp', None)
+
+        serializer = self.get_serializer(data=data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as e:
+            error_messages = []
+            for field, messages in e.detail.items():
+                error_messages.append(f"{' '.join(messages)}")
+
+            return Response(
+                {
+                    "message": " ".join(error_messages)
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        executive = serializer.save()
+        executive.is_phone_verified = True
+        executive.save(update_fields=["is_phone_verified"])
+        ExecutiveStats.objects.create(executive=executive)
+
+        pending.delete()
+
+        return Response(
+            {
+                "message": "Registration completed. Your account will be reviewed by admin.",
+                "executive": ExecutiveSerializer(executive).data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class ExecutiveLoginV2View(APIView):
+    """
+    NEW: mobile_number + password only. No OTP step — phone verification is
+    checked from the registration flow (is_phone_verified) instead.
+    """
+    permission_classes = []
+
+    def post(self, request):
+        mobile_number = request.data.get("mobile_number")
+        password = request.data.get("password")
+        fcm_token = request.data.get("fcm_token")
+
+        if not mobile_number or not password:
+            return Response(
+                {"message": "Mobile number and password are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Test login shortcut (bypass password check)
+        if is_test_number(mobile_number):
+            executive, created = Executive.objects.get_or_create(
+                mobile_number=mobile_number,
+                defaults={"name": "Test Executive", "is_verified": True, "is_phone_verified": True}
+            )
+            if not created:
+                executive.is_verified = True
+                executive.is_phone_verified = True
+                executive.save(update_fields=["is_verified", "is_phone_verified"])
+
+            new_token = _issue_executive_tokens(executive, fcm_token)
+
+            return Response({
+                "message": "Test login successful.",
+                "executive_id": executive.executive_id,
+                "id": executive.id,
+                "fcm_token": executive.fcm_token,
+                "name": executive.name,
+                "access_token": new_token.access_token,
+                "refresh_token": new_token.refresh_token,
+                "expires_at": new_token.expires_at
+            }, status=status.HTTP_200_OK)
+
+        # Regular flow
+        try:
+            executive = Executive.objects.get(mobile_number=mobile_number)
+        except Executive.DoesNotExist:
+            return Response({"message": "Executive not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not check_password(password, executive.password):
+            return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if executive.is_suspended or executive.is_banned:
+            return Response(
+                {"message": "Your account is suspended or banned. Contact admin."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if not executive.is_phone_verified:
+            return Response(
+                {"message": "Please verify your mobile number with the OTP sent during registration."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if not executive.is_verified:
+            return Response(
+                {"message": "Your account is not verified by admin yet."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        new_token = _issue_executive_tokens(executive, fcm_token)
+
+        return Response({
+            "message": "Login successful",
+            "executive_id": executive.executive_id,
+            "id": executive.id,
+            "fcm_token": executive.fcm_token,
+            "name": executive.name,
+            "access_token": new_token.access_token,
+            "refresh_token": new_token.refresh_token,
+            "expires_at": new_token.expires_at
+        }, status=status.HTTP_200_OK)
+
 
 from rest_framework.permissions import IsAuthenticated
 

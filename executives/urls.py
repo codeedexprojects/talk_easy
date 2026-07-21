@@ -7,9 +7,15 @@ urlpatterns = [
     path("list-languages/", LanguageListView.as_view(), name="language-list"),
 
     path("languages/<int:pk>/", LanguageDetailView.as_view(), name="language-detail"),
-    path('register-executives/', RegisterExecutiveView.as_view(), name='register-executive'), #reg admin
-    path("executive/login/", ExecutiveLoginView.as_view(), name="executive-login"), #login
-    path("executive/verify-otp/", ExecutiveVerifyOTPView.as_view(), name="executive-verify-otp"), #verify
+    path('register-executives/', RegisterExecutiveView.as_view(), name='register-executive'), #reg admin (LEGACY - live in production)
+    path("executive/login/", ExecutiveLoginView.as_view(), name="executive-login"), #login (LEGACY - live in production, OTP-based)
+    path("executive/verify-otp/", ExecutiveVerifyOTPView.as_view(), name="executive-verify-otp"), #verify (LEGACY - live in production)
+
+    # --- NEW (v2) executive auth flow: OTP requested + verified BEFORE the account is
+    # created, login is mobile_number + password only ---
+    path("executive/send-registration-otp/", SendRegistrationOTPView.as_view(), name="executive-send-registration-otp"),
+    path('register-executives-v2/', RegisterExecutiveV2View.as_view(), name='register-executive-v2'),
+    path("executive/login-v2/", ExecutiveLoginV2View.as_view(), name="executive-login-v2"),
     path('executive-logout/<int:executive_id>/', ExecutiveLogoutView.as_view(), name='executive-logout'), #logout
     path('executives/', ExecutiveListAPIView.as_view(), name='executive-list'), #ex list admin
     path('executives/<int:id>/', ExecutiveDetailAPIView.as_view(), name='executive-detail'), #ex details admin
