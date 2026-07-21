@@ -39,6 +39,7 @@ class Executive(AbstractBaseUser, PermissionsMixin):
     online = models.BooleanField(default=False)
     languages_known = models.ManyToManyField('Language', related_name="executives", blank=True)
     is_verified = models.BooleanField(default=False)
+    is_phone_verified = models.BooleanField(default=False, help_text="Mobile number confirmed via OTP at registration")
     is_online = models.BooleanField(default=False)
     is_offline = models.BooleanField(default=False)
     is_suspended = models.BooleanField(default=False)
@@ -274,6 +275,23 @@ class ExecutiveToken(models.Model):
             revoked=False,
             expires_at=expires_at
         )
+
+
+class ExecutivePendingRegistrationOTP(models.Model):
+    """
+    Holds an OTP for a mobile number that hasn't been registered yet (v2 flow).
+    The Executive account is only created once this OTP is verified.
+    """
+    mobile_number = models.CharField(max_length=15, db_index=True)
+    otp = models.CharField(max_length=6)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def __str__(self):
+        return f"Pending registration OTP for {self.mobile_number}"
 
 
 class BlockedusersByExecutive(models.Model):
