@@ -11,6 +11,7 @@ from .serializers import *
 
 logger = logging.getLogger(__name__)
 import re
+import hashlib
 from django.contrib.auth import authenticate
 import random
 from executives.utils import send_otp
@@ -521,6 +522,97 @@ class ExecutiveLoginV2View(APIView):
             "refresh_token": new_token.refresh_token,
             "expires_at": new_token.expires_at
         }, status=status.HTTP_200_OK)
+
+
+# ─────────────────────────────────────────────────────────────
+# NEW: Executive forgot-password flow (OTP-based, 3 steps).
+# Independent of the register/login v2 endpoints above.
+# ─────────────────────────────────────────────────────────────
+
+class ExecutiveForgotPasswordRequestOTPView(APIView):
+    """
+    Step 1: POST /executives/executive/forgot-password/request-otp/
+    Body: { mobile_number }
+    """
+    permission_classes = []
+
+    def post(self, request):
+        serializer = ExecutiveForgotPasswordRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"status": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        mobile_number = serializer.validated_data['mobile_number']
+
+        # Don't reveal whether the number is registered (anti-enumeration)
+        if not Executive.objects.filter(mobile_number=mobile_number).exists():
+            return Response(
+                {"status": True, "message": "If this number is registered, an OTP has been sent."},
+                status=status.HTTP_200_OK
+            )
+
+        # Rate-limit: 60 seconds between requests for the same number
+        latest_otp = ExecutivePasswordResetOTP.objects.filter(mobile_number=mobile_number).first()
+        if latest_otp:
+            time_diff = (timezone.now() - latest_otp.created_at).total_seconds()
+            if time_diff < 60:
+                return Response({
+                    "status": False,
+                    "message": f"Please wait {int(60 - time_diff)} seconds before requesting a new OTP."
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        if is_test_number(mobile_number):
+            otp_code = "123456"
+            sms_sent = True
+        else:
+            otp_code = str(random.randint(100000, 999999))
+            sms_sent = send_otp(mobile_number, otp_code)
+            if not sms_sent:
+                return Response(
+                    {"status": False, "message": "Failed to send OTP via SMS. Please try again later."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        ExecutivePasswordResetOTP.objects.filter(mobile_number=mobile_number).delete()
+        ExecutivePasswordResetOTP.objects.create(
+            mobile_number=mobile_number,
+            otp_hash=hashlib.sha256(otp_code.encode('utf-8')).hexdigest(),
+            expires_at=timezone.now() + timedelta(minutes=5)
+        )
+
+        return Response(
+            {"status": True, "message": "If this number is registered, an OTP has been sent."},
+            status=status.HTTP_200_OK
+        )
+
+
+class ExecutiveForgotPasswordVerifyOTPView(APIView):
+    """
+    Step 2: POST /executives/executive/forgot-password/verify-otp/
+    Body: { mobile_number, otp }
+    """
+    permission_classes = []
+
+    def post(self, request):
+        serializer = ExecutiveForgotPasswordVerifyOTPSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"status": True, "message": "OTP verified"}, status=status.HTTP_200_OK)
+        return Response({"status": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ExecutiveForgotPasswordResetView(APIView):
+    """
+    Step 3: POST /executives/executive/forgot-password/reset/
+    Body: { mobile_number, new_password }
+    """
+    permission_classes = []
+
+    def post(self, request):
+        serializer = ExecutiveResetPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"status": True, "message": "Password reset successful"}, status=status.HTTP_200_OK)
+        return Response({"status": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 
 from rest_framework.permissions import IsAuthenticated

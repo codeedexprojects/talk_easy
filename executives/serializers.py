@@ -1,7 +1,121 @@
+import hashlib
 from rest_framework import serializers
 from executives.models import *
 from django.contrib.auth.hashers import make_password
+from django.utils import timezone
+from datetime import timedelta
 from decimal import Decimal
+
+
+# ─────────────────────────────────────────────
+# Executive forgot-password (OTP) helpers
+# ─────────────────────────────────────────────
+
+def _hash_otp(otp: str) -> str:
+    """SHA-256 hash of a 6-digit OTP string."""
+    return hashlib.sha256(otp.encode('utf-8')).hexdigest()
+
+
+def _validate_strong_executive_password(value: str) -> str:
+    """Enforce minimum password length only."""
+    if len(value) < 8:
+        raise serializers.ValidationError("Password must be at least 8 characters.")
+    return value
+
+
+class ExecutiveForgotPasswordRequestSerializer(serializers.Serializer):
+    """Step 1: Executive submits mobile_number -> lookup -> send OTP (handled in the view)."""
+    mobile_number = serializers.CharField(max_length=15)
+
+
+class ExecutiveForgotPasswordVerifyOTPSerializer(serializers.Serializer):
+    """Step 2: Executive submits mobile_number + OTP -> verifies hashed OTP."""
+    mobile_number = serializers.CharField(max_length=15)
+    otp = serializers.CharField(max_length=6, min_length=6)
+
+    def validate(self, attrs):
+        mobile_number = attrs['mobile_number']
+        otp_input = attrs['otp']
+
+        otp_record = ExecutivePasswordResetOTP.objects.filter(
+            mobile_number=mobile_number, is_verified=False
+        ).first()
+        if not otp_record:
+            raise serializers.ValidationError({"otp": "No active OTP request found for this mobile number."})
+
+        if otp_record.is_expired():
+            otp_record.delete()
+            raise serializers.ValidationError({"otp": "OTP has expired. Please request a new one."})
+
+        if otp_record.attempts >= 3:
+            otp_record.delete()
+            raise serializers.ValidationError({"otp": "Too many failed attempts. Please request a new OTP."})
+
+        if otp_record.otp_hash != _hash_otp(otp_input):
+            otp_record.attempts += 1
+            otp_record.save(update_fields=['attempts'])
+            remaining = 3 - otp_record.attempts
+            if remaining <= 0:
+                otp_record.delete()
+                raise serializers.ValidationError({"otp": "Too many failed attempts. Please request a new OTP."})
+            raise serializers.ValidationError({"otp": f"Invalid OTP. {remaining} attempt(s) remaining."})
+
+        attrs['otp_record'] = otp_record
+        return attrs
+
+    def save(self):
+        otp_record = self.validated_data['otp_record']
+        otp_record.is_verified = True
+        # OTP stays valid for a short window after verification, to complete the reset
+        otp_record.expires_at = timezone.now() + timedelta(minutes=10)
+        otp_record.save(update_fields=['is_verified', 'expires_at'])
+        return otp_record
+
+
+class ExecutiveResetPasswordSerializer(serializers.Serializer):
+    """Step 3: Reset password using a verified mobile_number OTP."""
+    mobile_number = serializers.CharField(max_length=15)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        return _validate_strong_executive_password(value)
+
+    def validate(self, attrs):
+        mobile_number = attrs['mobile_number']
+
+        otp_record = ExecutivePasswordResetOTP.objects.filter(
+            mobile_number=mobile_number, is_verified=True
+        ).first()
+        if not otp_record:
+            raise serializers.ValidationError({"mobile_number": "OTP not verified for this mobile number."})
+
+        if otp_record.is_expired():
+            otp_record.delete()
+            raise serializers.ValidationError({"mobile_number": "Verification window expired. Please verify again."})
+
+        try:
+            executive = Executive.objects.get(mobile_number=mobile_number)
+        except Executive.DoesNotExist:
+            raise serializers.ValidationError({"mobile_number": "No executive account found with this mobile number."})
+
+        attrs['executive'] = executive
+        attrs['otp_record'] = otp_record
+        return attrs
+
+    def save(self):
+        executive = self.validated_data['executive']
+        otp_record = self.validated_data['otp_record']
+
+        executive.set_password(self.validated_data['new_password'])
+        executive.save()
+
+        # Password changed -> force re-login everywhere
+        ExecutiveToken.objects.filter(executive=executive, revoked=False).update(
+            revoked=True, revoked_at=timezone.now()
+        )
+
+        otp_record.delete()
+        return executive
 
 
 class LanguageSerializer(serializers.ModelSerializer):

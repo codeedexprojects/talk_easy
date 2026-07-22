@@ -294,6 +294,28 @@ class ExecutivePendingRegistrationOTP(models.Model):
         return f"Pending registration OTP for {self.mobile_number}"
 
 
+class ExecutivePasswordResetOTP(models.Model):
+    """
+    Stores hashed OTP records for the executive forgot-password flow.
+    One active record per mobile number — old ones are replaced on re-request.
+    """
+    mobile_number = models.CharField(max_length=15, db_index=True)
+    otp_hash = models.CharField(max_length=128)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Password reset OTP({self.mobile_number}, verified={self.is_verified})"
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+
 class BlockedusersByExecutive(models.Model):
     user = models.ForeignKey('users.UserProfile', on_delete=models.CASCADE, related_name='blocked_users')
     executive = models.ForeignKey(Executive, on_delete=models.CASCADE, related_name='blocked_executives')

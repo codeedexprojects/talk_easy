@@ -16,6 +16,12 @@ urlpatterns = [
     path("executive/send-registration-otp/", SendRegistrationOTPView.as_view(), name="executive-send-registration-otp"),
     path('register-executives-v2/', RegisterExecutiveV2View.as_view(), name='register-executive-v2'),
     path("executive/login-v2/", ExecutiveLoginV2View.as_view(), name="executive-login-v2"),
+
+    # --- NEW: executive forgot-password (OTP-based, 3 steps) ---
+    path("executive/forgot-password/request-otp/", ExecutiveForgotPasswordRequestOTPView.as_view(), name="executive-forgot-password-request-otp"),
+    path("executive/forgot-password/verify-otp/", ExecutiveForgotPasswordVerifyOTPView.as_view(), name="executive-forgot-password-verify-otp"),
+    path("executive/forgot-password/reset/", ExecutiveForgotPasswordResetView.as_view(), name="executive-forgot-password-reset"),
+
     path('executive-logout/<int:executive_id>/', ExecutiveLogoutView.as_view(), name='executive-logout'), #logout
     path('executives/', ExecutiveListAPIView.as_view(), name='executive-list'), #ex list admin
     path('executives/<int:id>/', ExecutiveDetailAPIView.as_view(), name='executive-detail'), #ex details admin
