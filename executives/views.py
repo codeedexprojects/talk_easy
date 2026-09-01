@@ -105,6 +105,8 @@ class RegisterExecutiveView(generics.CreateAPIView):
             )
 
         executive = serializer.save()
+        executive.is_phone_verified = True
+        executive.save(update_fields=["is_phone_verified"])
         ExecutiveStats.objects.create(executive=executive)
 
         return Response(
@@ -500,12 +502,9 @@ class ExecutiveLoginV2View(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if not executive.is_phone_verified:
-            return Response(
-                {"message": "Please verify your mobile number with the OTP sent during registration."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
+        # Admin-registered executives are never OTP-verified, so is_phone_verified
+        # is not required here — mobile_number + password is enough, same as the
+        # legacy login endpoint.
         if not executive.is_verified:
             return Response(
                 {"message": "Your account is not verified by admin yet."},
