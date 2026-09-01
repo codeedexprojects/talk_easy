@@ -245,6 +245,9 @@ class ExecutiveSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
+        if instance.is_verified and not instance.is_phone_verified:
+            instance.is_phone_verified = True
+
         if password:
             instance.set_password(password)
         instance.save()

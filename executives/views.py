@@ -123,8 +123,9 @@ from django.core.cache import cache
 
 class ExecutiveLoginView(APIView):
     """
-    LEGACY / CURRENTLY LIVE endpoint — untouched, still used by the app in production.
-    mobile_number + password -> OTP sent -> ExecutiveVerifyOTPView completes login.
+    LEGACY / CURRENTLY LIVE endpoint — still used by the app in production.
+    Admin-registered executives are not phone-verified via OTP, so login only
+    needs mobile_number + password: tokens are issued directly on success.
     """
     permission_classes = []
 
@@ -155,7 +156,7 @@ class ExecutiveLoginView(APIView):
                 "otp": otp
             }, status=status.HTTP_200_OK)
 
-        # Regular flow
+        # Regular flow: admin-registered executives log in with mobile_number + password only.
         try:
             executive = Executive.objects.get(mobile_number=mobile_number)
         except Executive.DoesNotExist:
@@ -176,18 +177,18 @@ class ExecutiveLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        otp = str(random.randint(100000, 999999))
-        executive.otp = otp
-        executive.is_verified = True
-        executive.save(update_fields=["otp", "is_verified"])
-
-        if not send_otp(mobile_number, otp):
-            return Response({"message": "Failed to send OTP"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        fcm_token = request.data.get("fcm_token")
+        new_token = _issue_executive_tokens(executive, fcm_token)
 
         return Response({
-            "message": "Password verified. OTP sent to your mobile. Please verify to complete login.",
-            "status": True,
-            "otp": otp
+            "message": "Login successful.",
+            "executive_id": executive.executive_id,
+            "id": executive.id,
+            "fcm_token": executive.fcm_token,
+            "name": executive.name,
+            "access_token": new_token.access_token,
+            "refresh_token": new_token.refresh_token,
+            "expires_at": new_token.expires_at
         }, status=status.HTTP_200_OK)
 
 
@@ -276,6 +277,7 @@ class ExecutiveVerifyOTPView(APIView):
         executive.online = True
         executive.is_logged_out = False
         executive.is_verified = True
+        executive.is_phone_verified = True
 
         if fcm_token and fcm_token != executive.fcm_token:
             if executive.fcm_token:
