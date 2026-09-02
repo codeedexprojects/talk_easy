@@ -48,12 +48,28 @@ class EndCallSerializer(serializers.Serializer):
     channel_name = serializers.CharField(max_length=100)
     request_id = serializers.CharField(max_length=64, required=False)  
 
-class WebhookSerializer(serializers.Serializer):
-    eventType = serializers.CharField()
+class AgoraWebhookPayloadSerializer(serializers.Serializer):
+    """
+    The nested "payload" object inside an Agora NCS event notification.
+    Shape varies by eventType — channelName/uid are present for channel and
+    broadcaster/audience events; reason is only present on leave events.
+    """
     channelName = serializers.CharField()
-    uid = serializers.CharField()
-    timestamp = serializers.DateTimeField(required=False)
-    signature = serializers.CharField(required=False)  # if you sign with HMAC
+    uid = serializers.CharField(required=False, allow_blank=True)
+    ts = serializers.IntegerField(required=False)
+    reason = serializers.CharField(required=False, allow_blank=True)
+
+
+class WebhookSerializer(serializers.Serializer):
+    """
+    Agora Notification Center (NCS) event notification envelope.
+    https://docs.agora.io/en/notifications/reference/notification-format
+    """
+    noticeId = serializers.CharField()
+    productId = serializers.IntegerField()
+    eventType = serializers.IntegerField()
+    notifyMs = serializers.IntegerField()
+    payload = AgoraWebhookPayloadSerializer()
 
 
 class CallInitiateSerializer(serializers.Serializer):

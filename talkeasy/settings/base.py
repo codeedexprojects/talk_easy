@@ -167,6 +167,11 @@ AGORA_TOKEN_TTL_SECONDS = config('AGORA_TOKEN_TTL_SECONDS', default=3600, cast=i
 AGORA_CUSTOMER_ID = config('AGORA_CUSTOMER_ID', default=None)
 AGORA_CUSTOMER_SECRET = config('AGORA_CUSTOMER_SECRET', default=None)
 
+# Signing key for verifying inbound Agora Notification Center (NCS) webhook
+# callbacks (Agora Console -> Notifications). Leave unset only for local dev —
+# AgoraWebhookView refuses to skip verification when this is set.
+AGORA_WEBHOOK_SECRET = config('AGORA_WEBHOOK_SECRET', default='')
+
 # Payment Configuration
 RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID')
 RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET')

@@ -1,5 +1,8 @@
 # calls/views.py
 import logging
+import hmac
+import hashlib
+import datetime as dt
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -38,7 +41,9 @@ class IsAuthenticatedOrService(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.user and request.user.is_authenticated:
             return True
-        # allow for webhook endpoint; actual verification will be inside the view
+        # Let the (unauthenticated) Agora webhook through here — it verifies
+        # the request's HMAC signature itself in AgoraWebhookView.post via
+        # _verify_agora_signature, since Agora never authenticates as a user.
         return view.__class__.__name__ == "AgoraWebhookView"
 
 
@@ -282,7 +287,7 @@ class CallInitiateView(APIView):
 
 
 class MarkJoinedView(APIView):
-   
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, channel_name):
@@ -290,22 +295,92 @@ class MarkJoinedView(APIView):
             call = AgoraCallHistory.objects.get(channel_name=channel_name, is_active=True)
         except AgoraCallHistory.DoesNotExist:
             return Response({"message": "Active call not found"}, status=404)
-        call.mark_joined()
+
+        if isinstance(request.user, Executive):
+            party = "executive"
+        elif isinstance(request.user, UserProfile):
+            party = "user"
+        else:
+            party = None
+
+        call.mark_joined(party=party)
         return Response({"ok": True})
 
 
-class AgoraWebhookView(APIView):
+# Agora Notification Center (NCS) event codes for the Channel Event
+# Notification product (productId=4). Confirm this list against the
+# project's Agora Console -> Notifications setup before relying on it —
+# Agora has revised these codes across product/API versions.
+AGORA_JOIN_EVENT_TYPES = {103, 105}   # broadcaster / audience joined channel
+AGORA_LEAVE_EVENT_TYPES = {102, 104, 106}  # channel destroyed, broadcaster / audience left
 
-    authentication_classes = []           # webhook usually comes unauthenticated
+
+def _verify_agora_signature(request):
+    """
+    Verifies an inbound Agora NCS callback against AGORA_WEBHOOK_SECRET using
+    HMAC-SHA256 over the raw request body.
+
+    NOTE: confirm the exact header name/algorithm Agora uses for this
+    project's Notifications configuration in the Agora Console before
+    relying on this in production — implemented against Agora's documented
+    HMAC-SHA256-over-raw-body scheme as the default assumption.
+    """
+    secret = getattr(settings, "AGORA_WEBHOOK_SECRET", "")
+    if not secret:
+        logger.warning(
+            "[AGORA WEBHOOK] AGORA_WEBHOOK_SECRET is not set — skipping "
+            "signature verification. This must never be empty in production."
+        )
+        return True
+
+    signature = request.META.get("HTTP_AGORA_SIGNATURE", "")
+    if not signature:
+        return False
+
+    expected = hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+class AgoraWebhookView(APIView):
+    """
+    Receives Agora Notification Center (NCS) event callbacks. See
+    AGORA_JOIN_EVENT_TYPES/AGORA_LEAVE_EVENT_TYPES above and
+    _verify_agora_signature for the assumptions that need confirming against
+    this project's live Agora Console configuration.
+    """
+
+    authentication_classes = []           # webhook comes from Agora, not our own auth
     permission_classes = [IsAuthenticatedOrService]
 
+    def get(self, request):
+        # Agora's Console hits the callback URL with a GET when it's first
+        # registered, to confirm the endpoint is reachable.
+        return Response({"ok": True})
+
     def post(self, request):
+        if not _verify_agora_signature(request):
+            logger.warning("[AGORA WEBHOOK] Signature verification failed.")
+            return Response({"detail": "Invalid signature."}, status=status.HTTP_403_FORBIDDEN)
+
         s = WebhookSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         payload = s.validated_data
 
-        event = payload["eventType"]
-        channel = payload["channelName"]
+        notice_id = payload["noticeId"]
+        event_type = payload["eventType"]
+        notify_ms = payload["notifyMs"]
+        event_payload = payload["payload"]
+        channel = event_payload["channelName"]
+        event_uid = str(event_payload.get("uid", ""))
+        reason = event_payload.get("reason")
+
+        notify_at = dt.datetime.fromtimestamp(notify_ms / 1000, tz=dt.timezone.utc)
+        if (timezone.now() - notify_at).total_seconds() > 300:
+            logger.warning(
+                "[AGORA WEBHOOK] Ignoring stale notification noticeId=%s (notifyMs=%s).",
+                notice_id, notify_ms,
+            )
+            return Response({"ok": True})
 
         try:
             call = AgoraCallHistory.objects.get(channel_name=channel)
@@ -313,18 +388,29 @@ class AgoraWebhookView(APIView):
             # Might be a late callback for a deleted call; ignore
             return Response({"ok": True})
 
-        if event in ("user.joined", "channel.firstUserJoined"):
-            call.mark_joined()
+        party = None
+        if event_uid == str(call.uid):
+            party = "user"
+        elif event_uid == str(call.callee_uid):
+            party = "executive"
 
-        elif event in ("user.left", "channel.idle", "channel.destroyed"):
-            # Use an idempotent request_id derived from event+timestamp if provided
-            webhook_timestamp = payload.get("timestamp")
-            req_id = f"webhook:{event}:{webhook_timestamp or timezone.now().isoformat()}"
+        if event_type in AGORA_JOIN_EVENT_TYPES:
+            call.mark_joined(party=party)
+
+        elif event_type in AGORA_LEAVE_EVENT_TYPES:
+            if party == "user":
+                call.user_left_at = timezone.now()
+            elif party == "executive":
+                call.executive_left_at = timezone.now()
+            if reason:
+                call.hangup_reason = reason
+
+            req_id = f"webhook:{notice_id}"
             # Bill up to Agora's own reported moment the party actually left,
             # not whenever we happened to process this webhook — this is the
             # closest thing to an exact, real-time end time available, since
             # it comes from Agora's servers rather than our own polling loop.
-            call.end_call(ender="webhook", request_id=req_id, effective_end_time=webhook_timestamp)
+            call.end_call(ender="webhook", request_id=req_id, effective_end_time=notify_at)
 
         # You may persist heartbeat / last activity timestamp
         call.last_heartbeat = timezone.now()
@@ -359,7 +445,9 @@ class CallJoinView(APIView):
         call.status = "joined"
         call.joined_at = timezone.now()
         call.is_active = True
-        call.save(update_fields=["status", "joined_at", "is_active"])
+        if not call.executive_joined_at:
+            call.executive_joined_at = timezone.now()
+        call.save(update_fields=["status", "joined_at", "is_active", "executive_joined_at"])
 
         # Notify the caller that executive has joined
         channel_layer = get_channel_layer()
@@ -621,10 +709,13 @@ class UserEndCallView(APIView):
             if user_balance <= 0:
                 ender = "system"
                 reason = "Insufficient balance, call ended automatically"
+                call.hangup_reason = "insufficient_balance"
             else:
                 ender = "user"
                 reason = "Call ended by user"
+                call.hangup_reason = "user_ended"
 
+            call.user_left_at = timezone.now()
             call.end_call(ender=ender)
 
         # Notify after transaction commits ensuring DB updates are visible
@@ -683,6 +774,8 @@ class ExecutiveEndCallView(APIView):
                     "duration_seconds": getattr(call, "duration_seconds", 0)
                 })
 
+            call.executive_left_at = timezone.now()
+            call.hangup_reason = "executive_ended"
             call.end_call(ender="executive")
             reason = "Call ended by executive"
 

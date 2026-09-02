@@ -62,8 +62,25 @@ class AgoraCallHistory(models.Model):
     duration_seconds = models.PositiveIntegerField(default=0)
     executive_earnings = models.DecimalField(max_digits=12, decimal_places=2, default=0.0)
 
-    ended_by = models.CharField(max_length=50, null=True, blank=True)  
+    ended_by = models.CharField(max_length=50, null=True, blank=True)
     end_request_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
+
+    user_joined_at = models.DateTimeField(null=True, blank=True)
+    user_left_at = models.DateTimeField(null=True, blank=True)
+    executive_joined_at = models.DateTimeField(null=True, blank=True)
+    executive_left_at = models.DateTimeField(null=True, blank=True)
+    talk_overlap_seconds = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Seconds both parties were actually present together, computed "
+                   "from user/executive joined/left timestamps. Reporting only — "
+                   "does not affect billing."
+    )
+    hangup_reason = models.CharField(
+        max_length=50, null=True, blank=True,
+        help_text="Why the call ended: an Agora-reported leave reason when "
+                   "available, otherwise a fallback derived from ended_by "
+                   "(e.g. user_ended, executive_ended, system_timeout)."
+    )
 
     monitor_uid = models.IntegerField(null=True, blank=True)  
     monitor_token = models.CharField(max_length=512, null=True, blank=True)  
@@ -78,13 +95,28 @@ class AgoraCallHistory(models.Model):
     def __str__(self):
         return f"{self.channel_name} ({self.status})"
 
-    def mark_joined(self):
+    def mark_joined(self, party=None):
+        """
+        party: "user" or "executive", when known, additionally records that
+        party's own join time. Reporting only — does not change joined_at's
+        existing semantics or any billing behavior.
+        """
+        update_fields = ["joined_at", "status", "is_active"]
+
         if not self.joined_at:
             self.joined_at = timezone.now()
         if self.status in ["pending", "ringing"]:
             self.status = "joined"
         self.is_active = True
-        self.save(update_fields=["joined_at", "status", "is_active"])
+
+        if party == "user" and not self.user_joined_at:
+            self.user_joined_at = timezone.now()
+            update_fields.append("user_joined_at")
+        elif party == "executive" and not self.executive_joined_at:
+            self.executive_joined_at = timezone.now()
+            update_fields.append("executive_joined_at")
+
+        self.save(update_fields=update_fields)
 
     def _compute_final_duration(self, ended_at):
         base_start = self.joined_at or self.start_time
@@ -122,16 +154,22 @@ class AgoraCallHistory(models.Model):
                 self.duration_seconds = 0
                 self.is_active = False
                 self.ended_by = ender
+                if not self.hangup_reason:
+                    self.hangup_reason = ender
                 if request_id:
                     self.end_request_id = request_id
-                
+
                 if hasattr(self.executive, "on_call"):
                     exec_obj = Executive.objects.select_for_update().get(id=self.executive.id)
                     exec_obj.on_call = False
                     exec_obj.save(update_fields=["on_call"])
                     self.executive.on_call = False
-                    
-                self.save(update_fields=["end_time", "duration", "duration_seconds", "status", "is_active", "ended_by", "end_request_id"])
+
+                self.save(update_fields=[
+                    "end_time", "duration", "duration_seconds", "status", "is_active",
+                    "ended_by", "hangup_reason", "end_request_id",
+                    "user_joined_at", "user_left_at", "executive_joined_at", "executive_left_at",
+                ])
                 return
 
             base_start = self.joined_at
@@ -202,8 +240,18 @@ class AgoraCallHistory(models.Model):
             self.status = "ended"
             self.is_active = False
             self.ended_by = ender
+            if not self.hangup_reason:
+                self.hangup_reason = ender
             if request_id:
                 self.end_request_id = request_id
+
+            # Reporting only — the seconds both parties were actually present
+            # together, distinct from duration/duration_seconds above (which
+            # remain the sole basis for coins_deducted/executive_earnings).
+            if self.user_joined_at and self.executive_joined_at:
+                overlap_start = max(self.user_joined_at, self.executive_joined_at)
+                overlap_end = min(self.user_left_at or now_time, self.executive_left_at or now_time)
+                self.talk_overlap_seconds = max(0, int((overlap_end - overlap_start).total_seconds()))
 
             self.save(update_fields=[
                 "end_time",
@@ -215,7 +263,13 @@ class AgoraCallHistory(models.Model):
                 "status",
                 "is_active",
                 "ended_by",
-                "end_request_id"
+                "hangup_reason",
+                "talk_overlap_seconds",
+                "end_request_id",
+                "user_joined_at",
+                "user_left_at",
+                "executive_joined_at",
+                "executive_left_at",
             ])
 
 
