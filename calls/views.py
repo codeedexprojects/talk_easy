@@ -333,6 +333,12 @@ def _verify_agora_signature(request):
         )
         return True
 
+    # TEMP DIAGNOSTIC — remove once the real header name/scheme is confirmed.
+    # Logs every inbound header + raw body so we can see exactly what Agora
+    # actually sends, instead of guessing again.
+    agora_headers = {k: v for k, v in request.META.items() if k.startswith("HTTP_")}
+    logger.warning("[AGORA WEBHOOK][DIAG] headers=%s body=%s", agora_headers, request.body[:500])
+
     signature = request.META.get("HTTP_AGORA_SIGNATURE", "")
     if not signature:
         return False
