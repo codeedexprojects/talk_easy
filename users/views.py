@@ -13,6 +13,8 @@ from rest_framework.permissions import IsAdminUser
 from notifications.utils import (
     TOPIC_ALL_MEMBERS,
     TOPIC_ALL_USERS,
+    USER_TOPICS,
+    clear_fcm_token,
     subscribe_token_to_topic,
     unsubscribe_token_from_topic,
 )
@@ -151,7 +153,7 @@ class RegisterOrLoginView(APIView):
 from rest_framework_simplejwt.tokens import RefreshToken , TokenError
 
 
-from users.utils import create_tokens_for_userprofile
+from users.utils import create_tokens_for_userprofile, revoke_userprofile_token
 
 class VerifyOTPView(APIView):
     permission_classes = []
@@ -227,42 +229,57 @@ class VerifyOTPView(APIView):
 
 
 class LogoutView(APIView):
+    """
+    Ends the authenticated user's session:
+      * revokes the access token that made this request, plus the refresh token
+        if one is supplied (both stop authenticating immediately),
+      * unsubscribes the device from the FCM topics and clears its token, so no
+        further pushes reach it,
+      * marks the profile logged out / offline.
+
+    `refresh_token` is optional — without it only the presented access token is
+    revoked and the client keeps a usable refresh token, so apps should send it.
+    """
     permission_classes = [IsAuthenticated]
     authentication_classes = [UserProfileJWTAuthentication]
-    
+
     def post(self, request):
+        user = request.user
         refresh_token = request.data.get('refresh_token')
-        if not refresh_token:
-            return Response({'message': 'Refresh token is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            token = RefreshToken(refresh_token)
-            
-            if hasattr(request, 'user') and request.user:
-                user = request.user
-            else:
-                user_id = token.payload.get('user_id')
-                if not user_id:
-                    return Response({'message': 'Invalid token payload.'}, status=status.HTTP_400_BAD_REQUEST)
-                
-                try:
-                    user = UserProfile.objects.get(id=user_id)
-                except UserProfile.DoesNotExist:
-                    return Response({'message': 'User not found.'}, status=status.HTTP_400_BAD_REQUEST)
-            
-            user.is_active = False
-            user.is_loginned = False
-            user.is_online = False
-            user.save(update_fields=['is_active', 'is_loginned', 'is_online'])
-            
-            token.blacklist()
-            
-            return Response({'message': 'Logout successful.'}, status=status.HTTP_200_OK)
-            
-        except TokenError:
-            return Response({'message': 'Invalid token.'}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({'message': f'An error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        refresh_revoked = False
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+            except TokenError:
+                return Response({'message': 'Invalid refresh token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if str(token.payload.get('user_id')) != str(user.id):
+                return Response(
+                    {'message': 'Refresh token does not belong to this user.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            refresh_revoked = revoke_userprofile_token(user, token)
+
+        # Revoke the credential this request was made with, so it dies even when
+        # the client never sends its refresh token.
+        access_revoked = False
+        if request.auth is not None:
+            access_revoked = revoke_userprofile_token(user, request.auth)
+
+        fcm_cleared = clear_fcm_token(user, USER_TOPICS)
+
+        user.is_loginned = False
+        user.is_online = False
+        user.save(update_fields=['is_loginned', 'is_online', 'fcm_token'])
+
+        return Response({
+            'message': 'Logout successful.',
+            'access_token_revoked': access_revoked,
+            'refresh_token_revoked': refresh_revoked,
+            'fcm_token_cleared': fcm_cleared,
+        }, status=status.HTTP_200_OK)
 
 
 class UserDetailView(APIView):

@@ -31,6 +31,33 @@ def create_tokens_for_userprofile(user):
 def is_token_blacklisted(jti):
     return UserProfileBlacklistedToken.objects.filter(token__jti=jti).exists()
 
+def revoke_userprofile_token(user, token):
+    """
+    Revoke a single access/refresh token so UserProfileJWTAuthentication rejects
+    it from here on (it checks the presented token's jti against
+    UserProfileBlacklistedToken).
+
+    `token` is a parsed simplejwt token. The outstanding row is created on demand
+    because only refresh tokens get one at issue time — access tokens, and every
+    token issued before this existed, have nothing to blacklist otherwise.
+    """
+    jti = token.payload.get('jti')
+    if not jti:
+        return False
+
+    exp = token.payload.get('exp')
+    expires_at = (
+        datetime.fromtimestamp(exp, tz=timezone.utc)
+        if exp else datetime.now(timezone.utc)
+    )
+
+    outstanding, _ = UserProfileOutstandingToken.objects.get_or_create(
+        jti=jti,
+        defaults={'user': user, 'token': str(token), 'expires_at': expires_at},
+    )
+    UserProfileBlacklistedToken.objects.get_or_create(token=outstanding)
+    return True
+
 def blacklist_token(token_str):
     try:
         outstanding_token = UserProfileOutstandingToken.objects.get(token=token_str)

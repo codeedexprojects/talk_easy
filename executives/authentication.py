@@ -35,6 +35,10 @@ def custom_exception_handler(exc, context):
     if response is not None and isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
         response.status_code = 403
         detail = exc.detail if hasattr(exc, "detail") else str(exc)
+        # simplejwt wraps its detail as {"detail": ..., "code": ...} — unwrap it so
+        # clients get the message itself instead of a stringified dict.
+        if isinstance(detail, dict):
+            detail = detail.get("detail", detail)
         response.data = {"message": str(detail)}
 
     return response

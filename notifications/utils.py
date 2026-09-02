@@ -16,6 +16,10 @@ AUDIENCE_TOPICS = {
     "all": [TOPIC_ALL_MEMBERS],
 }
 
+# Every topic a device of each account type is subscribed to at login.
+USER_TOPICS = (TOPIC_ALL_USERS, TOPIC_ALL_MEMBERS)
+EXECUTIVE_TOPICS = (TOPIC_ALL_EXECUTIVES, TOPIC_ALL_MEMBERS)
+
 
 def subscribe_token_to_topic(token, topic):
     """Subscribe a single device token to `topic`. Never raises."""
@@ -49,6 +53,26 @@ def unsubscribe_token_from_topic(token, topic):
     except Exception as exc:
         logger.error("[FCM] Failed to unsubscribe token from topic %s: %s", topic, exc, exc_info=True)
         return False
+
+
+def clear_fcm_token(instance, topics):
+    """
+    Detach the device from push: unsubscribe the stored FCM token from `topics`
+    and blank it on `instance` (the caller is responsible for saving, so the
+    field can go out with the rest of the logout update). Never raises.
+
+    Returns True if there was a token to clear.
+    """
+    token = getattr(instance, "fcm_token", None)
+
+    if not token:
+        return False
+
+    for topic in topics:
+        unsubscribe_token_from_topic(token, topic)
+
+    instance.fcm_token = None
+    return True
 
 
 def send_topic_fcm_notification(audience, title, body, image_url=None, data=None):

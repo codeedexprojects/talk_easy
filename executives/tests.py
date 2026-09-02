@@ -9,7 +9,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .models import Executive, ExecutiveStats, ExecutiveToken, GlobalPricing, RateSchedule
 from .pricing import get_current_amount_per_min
-from .views import UpdateExecutiveStatusAPIView
+from .views import ExecutiveLogoutView, UpdateExecutiveStatusAPIView
 from .authentication import ExecutiveTokenAuthentication
 from django.core.cache import cache
 
@@ -245,3 +245,126 @@ class ExecutiveBanForceLogoutTestCase(TestCase):
 
         self.token.refresh_from_db()
         self.assertFalse(self.token.revoked)
+
+
+@mock.patch("executives.views.clear_fcm_token", wraps=lambda instance, topics: (
+    setattr(instance, "fcm_token", None) or True
+))
+@mock.patch("executives.views.get_channel_layer")
+class ExecutiveLogoutTestCase(TestCase):
+    """FCM topic calls are mocked out — Firebase isn't reachable from tests."""
+
+    def setUp(self):
+        self.executive = Executive.objects.create(
+            executive_id="LOGOUT01",
+            mobile_number="9111222333",
+            name="Logout Test Executive",
+            online=True,
+            is_online=True,
+            on_call=True,
+            fcm_token="exec-device-token",
+        )
+        self.token = ExecutiveToken.objects.create(
+            executive=self.executive,
+            access_token="logout-test-access",
+            refresh_token="logout-test-refresh",
+            revoked=False,
+            expires_at=timezone.now() + timezone.timedelta(days=1),
+        )
+        self.factory = APIRequestFactory()
+
+    def logout(self, executive_id=None, user=None):
+        request = self.factory.post("/executive/logout/", {}, format="json")
+        force_authenticate(request, user=user or self.executive)
+        if executive_id is None:
+            return ExecutiveLogoutView.as_view()(request)
+        return ExecutiveLogoutView.as_view()(request, executive_id=executive_id)
+
+    def test_logout_revokes_tokens_clears_fcm_and_goes_offline(self, mock_get_channel_layer, _mock_clear):
+        mock_layer = mock.Mock()
+        mock_layer.group_send = mock.AsyncMock()
+        mock_get_channel_layer.return_value = mock_layer
+
+        response = self.logout()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["tokens_revoked"], 1)
+        self.assertTrue(response.data["fcm_token_cleared"])
+
+        self.token.refresh_from_db()
+        self.assertTrue(self.token.revoked)
+        self.assertIsNotNone(self.token.revoked_at)
+
+        self.executive.refresh_from_db()
+        self.assertIsNone(self.executive.fcm_token)
+        self.assertFalse(self.executive.online)
+        self.assertFalse(self.executive.is_online)
+        self.assertTrue(self.executive.is_offline)
+        self.assertFalse(self.executive.on_call)
+        self.assertTrue(self.executive.is_logged_out)
+
+    def test_logout_closes_live_socket(self, mock_get_channel_layer, _mock_clear):
+        mock_layer = mock.Mock()
+        mock_layer.group_send = mock.AsyncMock()
+        mock_get_channel_layer.return_value = mock_layer
+
+        self.logout()
+
+        mock_layer.group_send.assert_called_once()
+        group_name, event = mock_layer.group_send.call_args[0]
+        self.assertEqual(group_name, f"executive_{self.executive.executive_id}")
+        self.assertEqual(event["type"], "force_logout")
+
+    def test_revoked_token_is_rejected_on_next_request(self, mock_get_channel_layer, _mock_clear):
+        mock_get_channel_layer.return_value = None
+
+        self.logout()
+
+        auth = ExecutiveTokenAuthentication()
+        fake_request = mock.Mock()
+        fake_request.headers = {"X-EXECUTIVE-TOKEN": self.token.access_token}
+
+        with self.assertRaises(AuthenticationFailed) as ctx:
+            auth.authenticate(fake_request)
+
+        self.assertIn("revoked", str(ctx.exception.detail).lower())
+
+    def test_cannot_log_out_another_executive(self, mock_get_channel_layer, _mock_clear):
+        mock_get_channel_layer.return_value = None
+
+        other = Executive.objects.create(
+            executive_id="LOGOUT02",
+            mobile_number="9111222444",
+            name="Other Executive",
+            online=True,
+            fcm_token="other-device-token",
+        )
+        other_token = ExecutiveToken.objects.create(
+            executive=other,
+            access_token="other-access",
+            refresh_token="other-refresh",
+            revoked=False,
+            expires_at=timezone.now() + timezone.timedelta(days=1),
+        )
+
+        response = self.logout(executive_id=other.id)
+
+        self.assertEqual(response.status_code, 403)
+
+        other_token.refresh_from_db()
+        self.assertFalse(other_token.revoked)
+
+        other.refresh_from_db()
+        self.assertTrue(other.online)
+        self.assertEqual(other.fcm_token, "other-device-token")
+
+    def test_legacy_path_with_own_id_still_works(self, mock_get_channel_layer, _mock_clear):
+        mock_layer = mock.Mock()
+        mock_layer.group_send = mock.AsyncMock()
+        mock_get_channel_layer.return_value = mock_layer
+
+        response = self.logout(executive_id=self.executive.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.token.refresh_from_db()
+        self.assertTrue(self.token.revoked)

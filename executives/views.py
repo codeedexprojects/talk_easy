@@ -26,8 +26,10 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from executives.authentication import ExecutiveTokenAuthentication
 from executives.utils import send_otp, is_test_number
 from notifications.utils import (
+    EXECUTIVE_TOPICS,
     TOPIC_ALL_EXECUTIVES,
     TOPIC_ALL_MEMBERS,
+    clear_fcm_token,
     subscribe_token_to_topic,
     unsubscribe_token_from_topic,
 )
@@ -619,19 +621,70 @@ class ExecutiveForgotPasswordResetView(APIView):
 from rest_framework.permissions import IsAuthenticated
 
 class ExecutiveLogoutView(APIView):
+    """
+    Ends the authenticated executive's session:
+      * revokes every active ExecutiveToken (access + refresh die immediately),
+      * unsubscribes the device from the FCM topics and clears its token,
+      * marks the executive offline and not on call,
+      * closes any live websocket, which broadcasts the offline status to the
+        users list.
+
+    `executive_id` in the path is legacy — it must match the caller, whose
+    identity always comes from the token, never from the URL.
+    """
     authentication_classes = [ExecutiveTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, executive_id):
-        updated = Executive.objects.filter(id=executive_id).update(
-            online=False, 
-            is_logged_out=True
-        )
+    def post(self, request, executive_id=None):
+        executive = request.user
 
-        if updated == 0:
-            return Response({"message": "Executive not found."}, status=404)
+        if executive_id is not None and int(executive_id) != executive.id:
+            return Response(
+                {"message": "Not authorized to log out this executive."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
-        return Response({"message": "Logout successful."}, status=200)
+        tokens_revoked = ExecutiveToken.objects.filter(
+            executive=executive, revoked=False
+        ).update(revoked=True, revoked_at=timezone.now())
+
+        fcm_cleared = clear_fcm_token(executive, EXECUTIVE_TOPICS)
+
+        executive.online = False
+        executive.is_online = False
+        executive.is_offline = True
+        executive.on_call = False
+        executive.is_logged_out = True
+        executive.save(update_fields=[
+            "online", "is_online", "is_offline", "on_call", "is_logged_out", "fcm_token"
+        ])
+
+        self.disconnect_socket(executive)
+
+        return Response({
+            "message": "Logout successful.",
+            "executive_id": executive.executive_id,
+            "id": executive.id,
+            "tokens_revoked": tokens_revoked,
+            "fcm_token_cleared": fcm_cleared,
+            "is_online": False,
+            "is_offline": True,
+        }, status=status.HTTP_200_OK)
+
+    def disconnect_socket(self, executive):
+        """Close the executive's live socket so users see them drop offline."""
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        try:
+            async_to_sync(channel_layer.group_send)(
+                f"executive_{executive.executive_id}",
+                {"type": "force_logout", "reason": "You have been logged out."}
+            )
+        except Exception as exc:
+            logger.error("[LOGOUT] Failed to close socket for executive_id=%s: %s",
+                         executive.executive_id, exc, exc_info=True)
 
 
 from django.shortcuts import get_object_or_404
