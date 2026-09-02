@@ -311,8 +311,8 @@ class MarkJoinedView(APIView):
 # Notification product (productId=4). Confirm this list against the
 # project's Agora Console -> Notifications setup before relying on it —
 # Agora has revised these codes across product/API versions.
-AGORA_JOIN_EVENT_TYPES = {103, 105}   # broadcaster / audience joined channel
-AGORA_LEAVE_EVENT_TYPES = {102, 104, 106}  # channel destroyed, broadcaster / audience left
+AGORA_JOIN_EVENT_TYPES = {103, 105, 107}   # broadcaster/audience/communication-mode user joined
+AGORA_LEAVE_EVENT_TYPES = {102, 104, 106, 108}  # channel destroyed, broadcaster/audience/communication-mode user left
 
 
 def _verify_agora_signature(request):
