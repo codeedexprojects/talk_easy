@@ -318,12 +318,9 @@ AGORA_LEAVE_EVENT_TYPES = {102, 104, 106, 108}  # channel destroyed, broadcaster
 def _verify_agora_signature(request):
     """
     Verifies an inbound Agora NCS callback against AGORA_WEBHOOK_SECRET using
-    HMAC-SHA256 over the raw request body.
-
-    NOTE: confirm the exact header name/algorithm Agora uses for this
-    project's Notifications configuration in the Agora Console before
-    relying on this in production — implemented against Agora's documented
-    HMAC-SHA256-over-raw-body scheme as the default assumption.
+    HMAC-SHA256 over the raw request body, checked against the
+    Agora-Signature-V2 header (confirmed via this project's live traffic —
+    Agora also sends a legacy SHA-1 'Agora-Signature' header we don't use).
     """
     secret = getattr(settings, "AGORA_WEBHOOK_SECRET", "")
     if not secret:
@@ -333,13 +330,7 @@ def _verify_agora_signature(request):
         )
         return True
 
-    # TEMP DIAGNOSTIC — remove once the real header name/scheme is confirmed.
-    # Logs every inbound header + raw body so we can see exactly what Agora
-    # actually sends, instead of guessing again.
-    agora_headers = {k: v for k, v in request.META.items() if k.startswith("HTTP_")}
-    logger.warning("[AGORA WEBHOOK][DIAG] headers=%s body=%s", agora_headers, request.body[:500])
-
-    signature = request.META.get("HTTP_AGORA_SIGNATURE", "")
+    signature = request.META.get("HTTP_AGORA_SIGNATURE_V2", "")
     if not signature:
         return False
 
