@@ -22,7 +22,8 @@ urlpatterns = [
     path("executive/forgot-password/verify-otp/", ExecutiveForgotPasswordVerifyOTPView.as_view(), name="executive-forgot-password-verify-otp"),
     path("executive/forgot-password/reset/", ExecutiveForgotPasswordResetView.as_view(), name="executive-forgot-password-reset"),
 
-    path('executive-logout/<int:executive_id>/', ExecutiveLogoutView.as_view(), name='executive-logout'), #logout
+    path('executive/logout/', ExecutiveLogoutView.as_view(), name='executive-logout-self'), #logout (identity from token)
+    path('executive-logout/<int:executive_id>/', ExecutiveLogoutView.as_view(), name='executive-logout'), #logout (LEGACY path form)
     path('executives/', ExecutiveListAPIView.as_view(), name='executive-list'), #ex list admin
     path('executives/<int:id>/', ExecutiveDetailAPIView.as_view(), name='executive-detail'), #ex details admin
     path('executive/<int:id>/update/', ExecutiveUpdateByIDAPIView.as_view(), name='executive-update-by-id'),
